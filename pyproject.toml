@@ -40,6 +40,7 @@ worker = [
     "pillow==12.2.0",
     "opencv-python-headless==4.13.0.92",
     "ultralytics==8.4.81",
+    "torch==2.12.1",
     "httpx==0.28.1",
     "pymysql==1.2.0",
 ]
@@ -47,7 +48,7 @@ worker = [
 # Bib-number OCR
 ocr = [
     "paddleocr==3.7.0",
-    "paddlepaddle==3.3.1",
+    "paddlepaddle==3.2.2",
 ]
 
 # Face detection + ArcFace embeddings.
@@ -60,7 +61,7 @@ face = [
 # Optional GPU enrichment pass (descriptions + hard-bib recovery). Run on the 4070.
 vlm = [
     "transformers==5.12.1",
-    "torch==2.12.1",
+    "torch",
     "accelerate==1.14.0",
 ]
 
@@ -93,7 +94,7 @@ layers = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
