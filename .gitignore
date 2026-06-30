@@ -222,3 +222,7 @@ __marimo__/
 # MacOS files
 .DS_STORE
 
+# model and test files
+*.pt
+test-pictures/
+

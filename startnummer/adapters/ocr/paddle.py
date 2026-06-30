@@ -1,0 +1,78 @@
+"""PaddleOCR reader. OCRs the full frame once and classifies each token.
+
+read() returns an OcrResult: digit tokens become bib candidates, alphabetic tokens
+become text hints (names) for the roster matcher to fuzzy-match. Boxes are in
+full-image coordinates; core.association.group_subjects attributes them to persons.
+
+Document preprocessing (orientation-classify + unwarping) is disabled: on an action
+photo it perspective-warps the frame and returns boxes in the warped space, which
+misplaces every box. rec_polys is index-aligned with rec_texts; dt_polys is not, so
+it is never used as a fallback.
+"""
+
+import re
+
+from startnummer.core.types import BibRead, BoundingBox, OcrResult, TextRead
+
+try:
+    import cv2
+    import numpy as np
+    from paddleocr import PaddleOCR
+except ImportError as exc:  # pragma: no cover - import guard for the ocr extra
+    raise ImportError("PaddleOcrReader requires the 'ocr' extra (paddleocr) + opencv") from exc
+
+_BIB = re.compile(r"^\d{1,5}$")  # digits only; widen if your bibs carry a letter prefix
+_TEXT = re.compile(r"[A-Za-zÄÖÜäöüß]{2,}")  # >=2 letters (umlauts included) to count as a name hint
+
+
+def _poly_to_box(poly) -> BoundingBox:
+    pts = np.array(poly, dtype=float).reshape(-1, 2)
+    x1, y1 = pts.min(axis=0)
+    x2, y2 = pts.max(axis=0)
+    return BoundingBox(int(x1), int(y1), int(x2), int(y2))
+
+
+class PaddleOcrReader:
+    def __init__(
+        self,
+        lang: str = "en",
+        bib_pattern: re.Pattern[str] = _BIB,
+        text_pattern: re.Pattern[str] = _TEXT,
+        enable_mkldnn: bool = True,
+    ) -> None:
+        # enable_mkldnn=False works around a PaddlePaddle 3.3.x CPU regression;
+        # unnecessary on 3.2.x. Models download on first use (needs network).
+        self._ocr = PaddleOCR(
+            lang=lang,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=enable_mkldnn,
+        )
+        self._bib = bib_pattern
+        self._text = text_pattern
+
+    def read(self, image_path: str) -> OcrResult:
+        image = cv2.imread(image_path)  # BGR
+        if image is None:
+            raise FileNotFoundError(image_path)
+
+        result = self._ocr.predict(image)
+        if not result:
+            return OcrResult(bibs=[], texts=[])
+        res = result[0]
+        texts = res.get("rec_texts", [])
+        scores = res.get("rec_scores", [])
+        polys = res.get("rec_polys", [])  # aligned with rec_texts; dt_polys is not
+
+        bibs: list[BibRead] = []
+        hints: list[TextRead] = []
+        for text, score, poly in zip(texts, scores, polys):
+            value = text.strip()
+            box = _poly_to_box(poly)
+            conf = float(score)
+            if self._bib.match(value):
+                bibs.append(BibRead(box=box, value=value, confidence=conf))
+            elif self._text.search(value):
+                hints.append(TextRead(box=box, value=value, confidence=conf))
+        return OcrResult(bibs=bibs, texts=hints)
