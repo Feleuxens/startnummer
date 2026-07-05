@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
-from PIL.ImageFont import FreeTypeFont, ImageFont
 
 from startnummer.adapters.detect.yolo import YoloDetector
 from startnummer.adapters.ocr.paddle import PaddleOcrReader
@@ -27,7 +26,7 @@ _FONT_PATHS = [
 ]
 
 
-def _font(size: int) -> FreeTypeFont | ImageFont:
+def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     for path in _FONT_PATHS:
         try:
             return ImageFont.truetype(path, size)
@@ -47,21 +46,26 @@ def main() -> None:
     elif path.is_dir():
         for file in path.iterdir():
             if (
-                    file.is_file()
-                    and file.suffix in [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
-                    and not file.name.startswith("_annotated")
+                file.is_file()
+                and file.suffix in [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
+                and "annotated" not in file.name
+                and "faces" not in file.name
             ):
                 pictures.append(file)
     else:
         raise ValueError(f"invalid path: {path}")
 
     detector = YoloDetector()
-    reader = PaddleOcrReader()  # add enable_mkldnn=False if you're on PaddlePaddle 3.3.x
+    reader = (
+        PaddleOcrReader()
+    )  # add enable_mkldnn=False if you're on PaddlePaddle 3.3.x
 
     for path in pictures:
         persons = detector.detect(str(path))
         result = reader.read(str(path))
-        print(f"{len(persons)} persons, {len(result.bibs)} bibs, {len(result.texts)} name hints")
+        print(
+            f"{len(persons)} persons, {len(result.bibs)} bibs, {len(result.texts)} name hints"
+        )
         for b in result.bibs:
             print(f"  bib  '{b.value}'  conf={b.confidence:.2f}  box={b.box}")
         for t in result.texts:
@@ -80,8 +84,12 @@ def main() -> None:
         font = _font(max(16, h // 55))
 
         def _box(b, color, label):
-            draw.rectangle([b.x1, b.y1, b.x2, b.y2], outline=color, width=width)  # noqa: B023
-            draw.text((b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font)  # noqa: B023
+            draw.rectangle(
+                [b.x1, b.y1, b.x2, b.y2], outline=color, width=width
+            )  # noqa: B023
+            draw.text(
+                (b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font
+            )  # noqa: B023
 
         for i, p in enumerate(persons):
             _box(p, PERSON, f"person {i}")
@@ -90,7 +98,7 @@ def main() -> None:
         for t in result.texts:
             _box(t.box, TEXT, t.value)
 
-        out = path.with_name(f"_annotated.{path.stem}{path.suffix}")
+        out = path.with_name(f"{path.stem}.annotated{path.suffix}")
         image.save(out)
         print(f"\nwrote {out}")
 
