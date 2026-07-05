@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from startnummer.adapters.detect.yolo import YoloDetector
 from startnummer.adapters.ocr.paddle import PaddleOcrReader
+from startnummer.adapters.ocr.rapid import RapidOcrReader
 from startnummer.core.association import group_subjects
 
 PERSON = (0, 0, 255)  # RGB
@@ -57,7 +58,8 @@ def main() -> None:
 
     detector = YoloDetector()
     reader = (
-        PaddleOcrReader()
+        RapidOcrReader()
+        # PaddleOcrReader()
     )  # add enable_mkldnn=False if you're on PaddlePaddle 3.3.x
 
     for path in pictures:

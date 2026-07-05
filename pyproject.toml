@@ -49,6 +49,8 @@ worker = [
 ocr = [
     "paddleocr==3.7.0",
     "paddlepaddle==3.2.2",
+    "rapidocr==3.9.1",
+    "rapidocr-onnxruntime==1.4.4",
     # "paddlepaddle-gpu==2.6.2"
 ]
 

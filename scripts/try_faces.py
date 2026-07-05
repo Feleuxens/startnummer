@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from startnummer.adapters.detect.yolo import YoloDetector
 from startnummer.adapters.face.insight import InsightFaceEngine
-from startnummer.adapters.ocr.paddle import PaddleOcrReader
+from startnummer.adapters.ocr.rapid import RapidOcrReader
 from startnummer.core.association import group_subjects
 from startnummer.core.identity import FaceItem, cluster_faces
 from startnummer.core.pipeline import face_cannot_links, strong_bib
@@ -69,7 +69,7 @@ def main() -> None:
         raise SystemExit(1)
 
     detector = YoloDetector()
-    ocr = PaddleOcrReader()  # enable_mkldnn=False on PaddlePaddle 3.3.x
+    ocr = RapidOcrReader() # PaddleOcrReader()  # enable_mkldnn=False on PaddlePaddle 3.3.x
     faces = InsightFaceEngine()
 
     # Pass 1: analyze every photo, collect grouped subjects.
