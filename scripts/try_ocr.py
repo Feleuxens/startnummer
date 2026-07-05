@@ -1,20 +1,21 @@
 """Detect persons, OCR (bibs + name hints), attribute bibs, and save an annotated image.
 
 Usage:
-    python scripts/try_ocr.py path/to/photo.jpg
+    PYTHONPATH=src python scripts/try_ocr.py path/to/photo.jpg [--engine rapid|paddle]
 
-Writes <name>.annotated<ext> beside the original.
+--engine paddle uses PaddleOCR (PP-OCR models on ONNX Runtime)
+
+Writes <name>.annotated<ext> beside the original. Labels are drawn with PIL + a
+TrueType font so umlauts render correctly (OpenCV's Hershey fonts are ASCII-only).
     blue=person   green=bib candidate   orange=name hint
 """
 
-import sys
+import argparse
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
 from startnummer.adapters.detect.yolo import YoloDetector
-from startnummer.adapters.ocr.paddle import PaddleOcrReader
-from startnummer.adapters.ocr.rapid import RapidOcrReader
 from startnummer.core.association import group_subjects
 
 PERSON = (0, 0, 255)  # RGB
@@ -24,6 +25,7 @@ TEXT = (255, 140, 0)
 _FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Aria.ttf",
 ]
 
 
@@ -37,10 +39,11 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print("usage: python scripts/try_ocr.py (<image>/<folder>)")
-        raise SystemExit(1)
-    path = Path(sys.argv[1])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image", type=Path)
+    parser.add_argument("--engine", choices=["paddle", "rapid"], default="rapid")
+    args = parser.parse_args()
+    path = args.image
     pictures: list[Path] = []
     if path.is_file():
         pictures = [path]
@@ -57,17 +60,17 @@ def main() -> None:
         raise ValueError(f"invalid path: {path}")
 
     detector = YoloDetector()
-    reader = (
-        RapidOcrReader()
-        # PaddleOcrReader()
-    )  # add enable_mkldnn=False if you're on PaddlePaddle 3.3.x
+    if args.engine == "paddle":
+        from startnummer.adapters.ocr.paddle import PaddleOcrReader
+        reader = PaddleOcrReader()
+    else:
+        from startnummer.adapters.ocr.rapid import RapidOcrReader
+        reader = RapidOcrReader()
 
     for path in pictures:
         persons = detector.detect(str(path))
         result = reader.read(str(path))
-        print(
-            f"{len(persons)} persons, {len(result.bibs)} bibs, {len(result.texts)} name hints"
-        )
+        print(f"{len(persons)} persons, {len(result.bibs)} bibs, {len(result.texts)} name hints")
         for b in result.bibs:
             print(f"  bib  '{b.value}'  conf={b.confidence:.2f}  box={b.box}")
         for t in result.texts:
@@ -86,15 +89,11 @@ def main() -> None:
         font = _font(max(16, h // 55))
 
         def _box(b, color, label):
-            draw.rectangle(
-                [b.x1, b.y1, b.x2, b.y2], outline=color, width=width
-            )  # noqa: B023
-            draw.text(
-                (b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font
-            )  # noqa: B023
+            draw.rectangle([b.x1, b.y1, b.x2, b.y2], outline=color, width=width)
+            draw.text((b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font)
 
         for i, p in enumerate(persons):
-            _box(p, PERSON, f"person {i}")
+            _box(p.box, PERSON, f"person {i}")
         for b in result.bibs:
             _box(b.box, BIB, f"{b.value} {b.confidence:.2f}")
         for t in result.texts:

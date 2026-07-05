@@ -36,3 +36,22 @@ class TextRead(NamedTuple):
 class OcrResult(NamedTuple):
     bibs: list[BibRead]  # digit tokens
     texts: list[TextRead]  # name/word tokens, fuzzy-matched against the roster later
+
+
+class Keypoint(NamedTuple):
+    x: float
+    y: float
+
+
+class PersonDetection(NamedTuple):
+    """Person box plus the body keypoints association needs. Keypoints are None
+    when not confidently visible; association falls back to box heuristics then.
+    Keypoint-based ownership is orientation-free by construction (an inverted
+    pole vaulter's torso quad is simply upside down)."""
+
+    box: BoundingBox
+    head: Keypoint | None = None  # nose, or eye/ear midpoint fallback (adapter's job)
+    left_shoulder: Keypoint | None = None
+    right_shoulder: Keypoint | None = None
+    left_hip: Keypoint | None = None
+    right_hip: Keypoint | None = None

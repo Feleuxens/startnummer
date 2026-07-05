@@ -1,4 +1,4 @@
-"""Pipeline-stage interfaces and the EntryTable contract.
+"""Pipeline-stage interfaces and the Roster contract.
 
 Implementations (pdfplumber, CSV, YOLO, PaddleOCR, InsightFace, Qwen-VL) live in
 startnummer.adapters and depend on this module, never the reverse. Each EntryTable
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from startnummer.core.models import Athlete
 from startnummer.core.record import AnalysisRecord
 from startnummer.core.sports import Event
-from startnummer.core.types import BoundingBox, FaceDetection, OcrResult
+from startnummer.core.types import FaceDetection, OcrResult, PersonDetection
 
 
 class EntryList(BaseModel):
@@ -31,8 +31,10 @@ class EntryListParser(Protocol):
 
 @runtime_checkable
 class Detector(Protocol):
-    # Person/torso regions to crop before OCR and face detection.
-    def detect(self, image_path: str) -> list[BoundingBox]: ...
+    # Person detections (box + pose keypoints) for bib/face ownership in
+    # core.association. Keypoints are optional per joint; association falls
+    # back to box heuristics for persons without them.
+    def detect(self, image_path: str) -> list[PersonDetection]: ...
 
 
 @runtime_checkable

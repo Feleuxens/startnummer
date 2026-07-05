@@ -27,19 +27,14 @@ EXTENSIONS = {".jpg", ".jpeg", ".png"}
 PERSON = (0, 0, 255)
 # Cluster colors cycle; two faces sharing a color+label were matched.
 CLUSTER_COLORS = [
-    (230, 25, 75),
-    (60, 180, 75),
-    (255, 140, 0),
-    (145, 30, 180),
-    (0, 180, 180),
-    (240, 50, 230),
-    (170, 110, 40),
-    (128, 128, 0),
+    (230, 25, 75), (60, 180, 75), (255, 140, 0), (145, 30, 180),
+    (0, 180, 180), (240, 50, 230), (170, 110, 40), (128, 128, 0),
 ]
 
 _FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Aria.ttf",
 ]
 
 
@@ -58,11 +53,8 @@ def main() -> None:
         raise SystemExit(1)
     folder = Path(sys.argv[1])
     paths = sorted(
-        p
-        for p in folder.iterdir()
-        if p.suffix.lower() in EXTENSIONS
-        and ".annotated" not in p.name
-        and ".faces" not in p.name
+        p for p in folder.iterdir()
+        if p.suffix.lower() in EXTENSIONS and "annotated" not in p.name and "faces" not in p.name
     )
     if not paths:
         print(f"no images in {folder}")
@@ -81,9 +73,7 @@ def main() -> None:
         detections = faces.detect(str(path))
         grouped_by_photo.append(group_subjects(persons, result.bibs, detections))
         persons_by_photo.append(persons)
-        print(
-            f"{path.name}: {len(persons)} persons, {len(result.bibs)} bibs, {len(detections)} faces"
-        )
+        print(f"{path.name}: {len(persons)} persons, {len(result.bibs)} bibs, {len(detections)} faces")
 
     # Pass 2: cluster with the same constraints the pipeline applies.
     items = [
@@ -95,8 +85,7 @@ def main() -> None:
     strong_bibs = {
         item.key: bib.value
         for item in items
-        if (bib := strong_bib(grouped_by_photo[item.key[0]][item.key[1]].bibs))
-        is not None
+        if (bib := strong_bib(grouped_by_photo[item.key[0]][item.key[1]].bibs)) is not None
     }
     clusters = cluster_faces(items, cannot_link=face_cannot_links(items, strong_bibs))
     cluster_of = {key: ci for ci, cluster in enumerate(clusters) for key in cluster}
@@ -119,10 +108,9 @@ def main() -> None:
         width = max(2, height // 500)
         font = _font(max(16, height // 55))
 
-        for box in persons_by_photo[pi]:
-            draw.rectangle(
-                [box.x1, box.y1, box.x2, box.y2], outline=PERSON, width=width
-            )
+        for person in persons_by_photo[pi]:
+            box = person.box
+            draw.rectangle([box.x1, box.y1, box.x2, box.y2], outline=PERSON, width=width)
 
         for si, g in enumerate(grouped_by_photo[pi]):
             ci = cluster_of.get((pi, si))
@@ -133,9 +121,7 @@ def main() -> None:
             for face in g.faces:
                 b = face.box
                 draw.rectangle([b.x1, b.y1, b.x2, b.y2], outline=color, width=width)
-                draw.text(
-                    (b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font
-                )
+                draw.text((b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font)
 
         out = path.with_name(f"{path.stem}.faces{path.suffix}")
         image.save(out)
