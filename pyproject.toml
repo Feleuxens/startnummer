@@ -25,8 +25,8 @@ db = [
 # Light image: serves the API + review UI
 api = [
     "startnummer[db]",
-    "fastapi==0.138.1",
-    "uvicorn[standard]==0.49.0",
+    "fastapi==0.139.0",
+    "uvicorn[standard]==0.50.0",
     "jinja2==3.1.6",
     "httpx==0.28.1",
 ]
@@ -37,9 +37,9 @@ worker = [
     # numpy pinned because of paddleocr's requirement
     "numpy==2.3.5",
     "pdfplumber==0.11.10",
-    "pillow==12.2.0",
-    "opencv-python-headless==4.13.0.92",
-    "ultralytics==8.4.81",
+    "pillow==12.3.0",
+    "opencv-python-headless==5.0.0.93",
+    "ultralytics==8.4.87",
     "torch==2.12.1",
     "httpx==0.28.1",
     "pymysql==1.2.0",
@@ -49,12 +49,14 @@ worker = [
 ocr = [
     "paddleocr==3.7.0",
     "paddlepaddle==3.2.2",
+    # "paddlepaddle-gpu==2.6.2"
 ]
 
 # Face detection + ArcFace embeddings.
 face = [
     "insightface==1.0.1",
     "onnxruntime==1.27.0",
+    "onnxruntime-gpu==1.27.0",
     "numpy",
 ]
 
@@ -73,7 +75,7 @@ startnummer-api = "startnummer.app.api:main"
 dev = [
     "ruff==0.15.20",
     "pytest==9.1.1",
-    "import-linter==2.12",
+    "import-linter==2.13",
     "mypy==2.1.0",
 ]
 
