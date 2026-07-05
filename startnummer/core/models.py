@@ -25,7 +25,9 @@ class Athlete(BaseModel):
     bib: str | None = None
     club: str | None = None
     age_category: str | None = None
-    entered_events: list[str] = Field(default_factory=list)  # raw entry labels, e.g. "100m"
+    entered_events: list[str] = Field(
+        default_factory=list
+    )  # raw entry labels, e.g. "100m"
     athlete_id: UUID | None = None  # stable key for the face gallery
 
 

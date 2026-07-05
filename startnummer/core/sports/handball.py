@@ -1,4 +1,4 @@
-"""Handball: event model and discipline enum only. All behaviour is inherited
+"""Handball: event model and discipline enum only. All behavior is inherited
 no-ops from SportBase — no discipline tag, nothing to resolve from entries.
 """
 
@@ -22,6 +22,9 @@ class HandballEvent(SportEvent):
 
 class HandballModule(SportBase):
     sport = Sport.HANDBALL
+
+    def new_event(self) -> HandballEvent:
+        return HandballEvent()
 
 
 register(HandballModule())

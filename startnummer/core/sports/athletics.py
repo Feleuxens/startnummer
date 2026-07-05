@@ -7,6 +7,7 @@ assumes are already normalized to canonical form by the entry table adapter.
 """
 
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Literal
 
@@ -99,10 +100,45 @@ def _canonical_event(entry: str) -> tuple[str, str] | None:
     return _FLAT, f"{int(distance)}m"
 
 
+# Cue label -> discipline it implies. Only refines an unset / generic-track
+# discipline; a confident field-event classification is never overridden.
+CUE_CONFIDENCE = 0.7  # placeholder until validated against real photos
+_CUE_DISCIPLINES: dict[str, AthleticsDiscipline] = {
+    "baton": AthleticsDiscipline.RELAY,
+    "hurdle": AthleticsDiscipline.HURDLES,
+}
+_REFINABLE = {AthleticsDiscipline.TRACK_RACE, AthleticsDiscipline.UNKNOWN}
+
+
 class AthleticsModule(SportBase):
     sport = Sport.ATHLETICS
 
-    def discipline_label(self, discipline: AthleticsDiscipline, lang: Lang) -> str | None:
+    def new_event(self) -> AthleticsEvent:
+        return AthleticsEvent()
+
+    def infer(self, event: AthleticsEvent, cues: Sequence[str]) -> AthleticsEvent:
+        if event.discipline is not None and event.discipline.value not in _REFINABLE:
+            return event
+        for (
+            cue,
+            discipline,
+        ) in _CUE_DISCIPLINES.items():  # fixed order: baton wins over hurdle
+            if cue in cues:
+                return event.model_copy(
+                    update={
+                        "discipline": Confident(
+                            value=discipline,
+                            confidence=CUE_CONFIDENCE,
+                            source=Source.RULE,
+                            note=f"{cue} visible",
+                        )
+                    }
+                )
+        return event
+
+    def discipline_label(
+        self, discipline: AthleticsDiscipline, lang: Lang
+    ) -> str | None:
         return (_DE if lang is Lang.DE else _EN).get(discipline)
 
     def discipline_tag(self, event: AthleticsEvent) -> Tag | None:

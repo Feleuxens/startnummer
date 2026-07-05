@@ -1,11 +1,10 @@
-"""Pipeline-stage interfaces and the Roster contract.
+"""Pipeline-stage interfaces and the EntryTable contract.
 
 Implementations (pdfplumber, CSV, YOLO, PaddleOCR, InsightFace, Qwen-VL) live in
 startnummer.adapters and depend on this module, never the reverse. Each EntryTable
 input format is a separate EntryTable implementation.
 """
 
-from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -45,8 +44,16 @@ class OcrReader(Protocol):
 
 @runtime_checkable
 class FaceEngine(Protocol):
-    # One detection (box + embedding) per face found within regions.
-    def detect(self, image_path: str, regions: Sequence[BoundingBox]) -> list[FaceDetection]: ...
+    # Detects faces on the full frame; one detection (box + embedding) per face.
+    # Boxes are in image coordinates; group_subjects does the person attribution.
+    def detect(self, image_path: str) -> list[FaceDetection]: ...
+
+
+@runtime_checkable
+class CueDetector(Protocol):
+    # Sport-relevant object cues visible in the frame ("baton", "hurdle", ...),
+    # deduped. Consumed by SportModule.infer to refine the event.
+    def detect(self, image_path: str) -> list[str]: ...
 
 
 @runtime_checkable

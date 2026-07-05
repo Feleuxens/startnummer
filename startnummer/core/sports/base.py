@@ -17,6 +17,10 @@ E = TypeVar("E", bound=SportEvent)
 class SportModule(Protocol[E]):
     sport: Sport
 
+    # Fresh, empty event of this sport's type; the pipeline constructs one per
+    # photo before infer/resolve fill it.
+    def new_event(self) -> E: ...
+
     def discipline_label(self, discipline: Any, lang: Lang) -> str | None: ...
 
     def discipline_tag(self, event: E) -> Tag | None: ...
@@ -31,9 +35,14 @@ class SportModule(Protocol[E]):
 
 
 class SportBase:
-    """No-op defaults. Subclasses set `sport` and override only what has rules."""
+    """No-op defaults. Subclasses set `sport` and override only what has rules.
+    new_event has no sensible default and must be overridden; the registry
+    completeness test catches a missing override."""
 
     sport: ClassVar[Sport]
+
+    def new_event(self) -> SportEvent:
+        raise NotImplementedError(f"{type(self).__name__} must implement new_event")
 
     def discipline_label(self, discipline: Any, lang: Lang) -> str | None:
         return None

@@ -39,8 +39,12 @@ class AnalysisRecord(BaseModel):
     event: Event
     subjects: list[Subject] = Field(default_factory=list)
 
-    description: str | None = None  # stored: may come from the VLM and be edited in review
-    extra_tags: list[str] = Field(default_factory=list)  # manual additions; derived tags are not stored
+    description: str | None = (
+        None  # stored: may come from the VLM and be edited in review
+    )
+    extra_tags: list[str] = Field(
+        default_factory=list
+    )  # manual additions; derived tags are not stored
 
     status: Status = Status.PENDING
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
