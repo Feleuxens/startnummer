@@ -14,6 +14,7 @@ from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from time import perf_counter
 from typing import NamedTuple
 
 from startnummer.core.association import GroupedSubject, group_subjects
@@ -175,11 +176,28 @@ def analyze_album(
     module = get(album.sport)
     photos: list[_PhotoAnalysis] = []
 
+    time_total_person = 0
+    time_total_ocr = 0
+    time_total_face = 0
+    time_total_grouping = 0
+
+    start_time = perf_counter()
     for path in image_paths:
+        intermediate_start = perf_counter()
         persons = detector.detect(path)
+        time_total_person += perf_counter() - intermediate_start
+
+        intermediate_start = perf_counter()
         ocr_result = ocr.read(path)
+        time_total_ocr += perf_counter() - intermediate_start
+
+        intermediate_start = perf_counter()
         face_detections = faces.detect(path) if faces is not None else []
+        time_total_face += perf_counter() - intermediate_start
+
+        intermediate_start = perf_counter()
         grouped = group_subjects(persons, ocr_result.bibs, face_detections)
+        time_total_grouping += perf_counter() - intermediate_start
 
         event = module.new_event()
         if cues is not None:
@@ -205,4 +223,11 @@ def analyze_album(
 
     for photo in photos:
         photo.record.status = _status(photo, min_bib_confidence)
+
+    print(f"Finished pipeline in {perf_counter() - start_time}")
+    print(f"Person detection (accumulated): {time_total_person}")
+    print(f"Ocr detection (accumulated): {time_total_ocr}")
+    print(f"Face detection (accumulated): {time_total_face}")
+    print(f"Grouping detection (accumulated): {time_total_grouping}")
+
     return [photo.record for photo in photos]

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from startnummer.adapters.cache import DEFAULT_CACHE
 from startnummer.adapters.detect.yolo import YoloDetector
-from startnummer.adapters.ocr.paddle import PaddleOcrReader
+from startnummer.adapters.ocr.rapid import RapidOcrReader
 from startnummer.core.enums import Sport
 from startnummer.core.pipeline import analyze_album
 from startnummer.core.record import Album
@@ -45,7 +45,7 @@ def main() -> None:
     paths = sorted(
         str(p)
         for p in args.folder.iterdir()
-        if p.suffix.lower() in EXTENSIONS and ".annotated" not in p.name
+        if p.suffix.lower() in EXTENSIONS and "annotated" not in p.name and "faces" not in p.name
     )
     if not paths:
         print(f"no images in {args.folder}")
@@ -62,7 +62,7 @@ def main() -> None:
     records = analyze_album(
         album, paths,
         detector=YoloDetector(),
-        ocr=PaddleOcrReader(),  # enable_mkldnn=False on PaddlePaddle 3.3.x
+        ocr=RapidOcrReader(),  # enable_mkldnn=False on PaddlePaddle 3.3.x
         faces=faces,
     )
 
