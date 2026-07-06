@@ -16,6 +16,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from startnummer.adapters.cache import DEFAULT_CACHE
 from startnummer.adapters.detect.yolo import YoloDetector
 from startnummer.adapters.face.insight import InsightFaceEngine
 from startnummer.adapters.ocr.rapid import RapidOcrReader
@@ -34,6 +35,7 @@ CLUSTER_COLORS = [
 _FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Aria.ttf",  # for macOS support
 ]
 
 
@@ -81,7 +83,6 @@ def main() -> None:
         for si, g in enumerate(grouped)
         if g.faces
     ]
-    
     def _pick(key):
         subject = grouped_by_photo[key[0]][key[1]]
         return strong_bib(subject.bibs, subject.bib_boxes)
@@ -109,7 +110,8 @@ def main() -> None:
 
     # Pass 3: draw.
     for pi, path in enumerate(paths):
-        image = Image.open(path).convert("RGB")
+        # Cached BGR -> RGB copy (EXIF-consistent with the models; see try_ocr)
+        image = Image.fromarray(DEFAULT_CACHE.load(str(path))[:, :, ::-1].copy())
         draw = ImageDraw.Draw(image)
         height = image.size[1]
         width = max(2, height // 500)
@@ -133,6 +135,7 @@ def main() -> None:
         out = path.with_name(f"{path.stem}.faces{path.suffix}")
         image.save(out)
         print(f"wrote {out}")
+    print(DEFAULT_CACHE.stats())
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from startnummer.adapters.cache import DEFAULT_CACHE
 from startnummer.adapters.detect.yolo import YoloDetector
 from startnummer.core.association import group_subjects
 
@@ -25,7 +26,7 @@ TEXT = (255, 140, 0)
 _FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/System/Library/Fonts/Supplemental/Aria.ttf",
+    "/System/Library/Fonts/Supplemental/Aria.ttf",  # for macOS support
 ]
 
 
@@ -82,7 +83,9 @@ def main() -> None:
             anchored = "orphan" if g.person_box is None else "person"
             print(f"  subject {i} ({anchored}): bibs={[c.value for c in g.bibs]}")
 
-        image = Image.open(path).convert("RGB")
+        # Cached BGR array -> RGB copy: same pixels the models saw (cv2 applies EXIF
+        # orientation; Image.open does not), and no extra decode.
+        image = Image.fromarray(DEFAULT_CACHE.load(str(path))[:, :, ::-1].copy())
         draw = ImageDraw.Draw(image)
         h = image.size[1]
         width = max(2, h // 500)
@@ -102,6 +105,7 @@ def main() -> None:
         out = path.with_name(f"{path.stem}.annotated{path.suffix}")
         image.save(out)
         print(f"\nwrote {out}")
+    print(DEFAULT_CACHE.stats())
 
 
 if __name__ == "__main__":

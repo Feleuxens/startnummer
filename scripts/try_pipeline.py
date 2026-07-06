@@ -12,6 +12,7 @@ import json
 import uuid
 from pathlib import Path
 
+from startnummer.adapters.cache import DEFAULT_CACHE
 from startnummer.adapters.detect.yolo import YoloDetector
 from startnummer.adapters.ocr.paddle import PaddleOcrReader
 from startnummer.core.enums import Sport
@@ -38,6 +39,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("folder", type=Path)
     parser.add_argument("--no-faces", action="store_true")
+    parser.add_argument("--cache-mb", type=int, default=4096, help="decode-cache RAM budget")
     args = parser.parse_args()
 
     paths = sorted(
@@ -52,13 +54,13 @@ def main() -> None:
     faces = None
     if not args.no_faces:
         from startnummer.adapters.face.insight import InsightFaceEngine
-
         faces = InsightFaceEngine()
+
+    DEFAULT_CACHE.set_max_mb_bytes(args.cache_mb)
 
     album = Album(owner_id=uuid.uuid4(), name=args.folder.name, sport=Sport.ATHLETICS)
     records = analyze_album(
-        album,
-        paths,
+        album, paths,
         detector=YoloDetector(),
         ocr=PaddleOcrReader(),  # enable_mkldnn=False on PaddlePaddle 3.3.x
         faces=faces,
@@ -81,6 +83,7 @@ def main() -> None:
         )
     )
     print(f"\nwrote {out}")
+    print(DEFAULT_CACHE.stats())
 
 
 if __name__ == "__main__":

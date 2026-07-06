@@ -5,6 +5,7 @@ min_keypoint_confidence come back as None and association uses its box
 fallback for that person.
 """
 
+from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
 from startnummer.core.types import BoundingBox, Keypoint, PersonDetection
 
 try:
@@ -35,16 +36,19 @@ class YoloDetector:
         min_confidence: float = 0.25,
         min_keypoint_confidence: float = 0.5,
         device: str = "auto",
+        cache: ImageCache | None = None,
     ) -> None:
         # Weights auto-download on first use (needs network).
         self._model = YOLO(model)
         self._min_confidence = min_confidence
         self._min_kp = min_keypoint_confidence
         self._device = _resolve_device(device)
+        self._cache = cache or DEFAULT_CACHE
 
     def detect(self, image_path: str) -> list[PersonDetection]:
+        image = self._cache.load(image_path)  # BGR; ultralytics accepts arrays directly
         results = self._model(
-            image_path, conf=self._min_confidence, device=self._device, verbose=False
+            image, conf=self._min_confidence, device=self._device, verbose=False
         )
         detections: list[PersonDetection] = []
         for result in results:

@@ -1,7 +1,25 @@
-"""RapidOCR reader: PP-OCR models on ONNX Runtime."""
+"""RapidOCR reader: PP-OCR models on ONNX Runtime instead of PaddlePaddle.
+
+Same models as the Paddle adapter (PP-OCRv5), different runtime. Motivation:
+every runtime incident in this project (oneDNN crash, RAM regression, doc-unwarp
+coordinate corruption, macOS torch symbol clash) was PaddlePaddle, never the
+models. ONNX Runtime is already in-process for InsightFace and coexists with
+torch on all platforms.
+
+Behavior mirrors adapters/ocr/paddle.py: full-frame read, in-memory downscale to
+max_side with boxes rescaled to original coordinates, digit tokens -> bibs,
+letter tokens -> name hints.
+
+CALIBRATION (first run): RapidOCR 3.x changed its result API; _parse handles the
+known shapes and raises with a structure dump on anything else — fix there, not
+by guessing. Also verify which model generation the installed version downloads
+by default (v4 vs v5 mobile); pin via `params` if quality on the album differs
+from the Paddle adapter.
+"""
 
 import re
 
+from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
 from startnummer.core.types import BibRead, BoundingBox, OcrResult, TextRead
 
 try:
@@ -51,6 +69,7 @@ class RapidOcrReader:
         max_side: int | None = 2500,  # measured on the Paddle adapter; revalidate here
         text_score: float = 0.5,  # OCR-level floor: recognitions below this are dropped
         params: dict | None = None,  # overrides merged over the defaults below
+        cache: ImageCache | None = None,
     ) -> None:
         defaults: dict = {
             "Det.engine_type": EngineType.ONNXRUNTIME,
@@ -68,11 +87,10 @@ class RapidOcrReader:
         self._bib = bib_pattern
         self._text = text_pattern
         self._max_side = max_side
+        self._cache = cache or DEFAULT_CACHE
 
     def read(self, image_path: str) -> OcrResult:
-        image = cv2.imread(image_path)  # BGR
-        if image is None:
-            raise FileNotFoundError(image_path)
+        image = self._cache.load(image_path)  # BGR, read-only; resize below copies
 
         scale = 1.0
         longest = max(image.shape[:2])

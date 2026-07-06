@@ -12,6 +12,7 @@ it is never used as a fallback.
 
 import re
 
+from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
 from startnummer.core.types import BibRead, BoundingBox, OcrResult, TextRead
 
 try:
@@ -57,6 +58,7 @@ class PaddleOcrReader:
         device: str = "auto",  # "auto" | "cpu" | "gpu"
         cpu_threads: int | None = None,  # None = library default
         enable_mkldnn: bool = True,  # False works around the PaddlePaddle 3.3.x CPU regression
+        cache: ImageCache | None = None,
     ) -> None:
         # enable_mkldnn=False works around a PaddlePaddle 3.3.x CPU regression;
         # unnecessary on 3.2.x. Models download on first use (needs network).
@@ -74,16 +76,14 @@ class PaddleOcrReader:
             enable_mkldnn=enable_mkldnn,
             **options,
         )
-
         self._bib = bib_pattern
         self._text = text_pattern
         self._max_side = max_side
+        self._cache = cache or DEFAULT_CACHE
 
     def read(self, image_path: str) -> OcrResult:
-        image = cv2.imread(image_path)  # BGR
-        if image is None:
-            raise FileNotFoundError(image_path)
-        image = cv2.imread(image_path)
+        image = self._cache.load(image_path)  # BGR, read-only; resize below copies
+
         scale = 1.0
         if self._max_side and max(image.shape[:2]) > self._max_side:
             scale = self._max_side / max(image.shape[:2])
@@ -103,10 +103,10 @@ class PaddleOcrReader:
         hints: list[TextRead] = []
         for text, score, poly in zip(texts, scores, polys):
             value = text.strip()
-            box = _poly_to_box(poly, scale=scale)
+            box = _poly_to_box(poly, scale)
             conf = float(score)
-            if self._bib.match(value) and conf > 0.5:
+            if self._bib.match(value):
                 bibs.append(BibRead(box=box, value=value, confidence=conf))
-            elif self._text.search(value) and conf > 0.5:
+            elif self._text.search(value):
                 hints.append(TextRead(box=box, value=value, confidence=conf))
         return OcrResult(bibs=bibs, texts=hints)

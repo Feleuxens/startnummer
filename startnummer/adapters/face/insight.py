@@ -19,6 +19,7 @@ Uses CUDA when onnxruntime-gpu is installed (provider list filtered against what
 the installed runtime offers, so plain onnxruntime runs CPU without warnings).
 """
 
+from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
 from startnummer.core.types import BoundingBox, FaceDetection
 
 try:
@@ -26,9 +27,7 @@ try:
     import onnxruntime
     from insightface.app import FaceAnalysis
 except ImportError as exc:  # pragma: no cover - import guard for the face extra
-    raise ImportError(
-        "InsightFaceEngine requires the 'face' extra (insightface, onnxruntime)"
-    ) from exc
+    raise ImportError("InsightFaceEngine requires the 'face' extra (insightface, onnxruntime)") from exc
 
 _PREFERRED_PROVIDERS = ["CUDAExecutionProvider", "CPUExecutionProvider"]
 _DUPLICATE_IOU = 0.5  # two detections overlapping this much are the same face
@@ -55,11 +54,9 @@ class InsightFaceEngine:
         self,
         model: str = "buffalo_l",
         min_confidence: float = 0.7,
-        det_size: tuple[int, int] = (
-            960,
-            960,
-        ),  # both dimensions must be divisible by 32
+        det_size: tuple[int, int] = (960, 960),  # both dimensions must be divisible by 32
         min_face_height: int = 80,  # px in the original image; 0 disables the gate
+        cache: ImageCache | None = None,
     ) -> None:
         self._app = FaceAnalysis(
             name=model,
@@ -69,17 +66,14 @@ class InsightFaceEngine:
         self._app.prepare(ctx_id=0, det_size=det_size)
         self._min_confidence = min_confidence
         self._min_face_height = min_face_height
+        self._cache = cache or DEFAULT_CACHE
 
     def detect(self, image_path: str) -> list[FaceDetection]:
-        image = cv2.imread(image_path)  # BGR, as insightface expects
-        if image is None:
-            raise FileNotFoundError(image_path)
+        image = self._cache.load(image_path)  # BGR (as insightface expects), read-only
 
         # Highest-score first, then IoU-dedupe: the detector occasionally emits
         # two near-identical boxes for one face; keep only the stronger.
-        faces = sorted(
-            self._app.get(image), key=lambda f: float(f.det_score), reverse=True
-        )
+        faces = sorted(self._app.get(image), key=lambda f: float(f.det_score), reverse=True)
         kept_boxes: list[tuple[int, int, int, int]] = []
         detections: list[FaceDetection] = []
         for face in faces:
