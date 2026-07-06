@@ -49,6 +49,7 @@ _UNIQUE_MARGIN = 0.8  # unique bib assignment if best cost < margin * runner-up
 class GroupedSubject:
     person_box: BoundingBox | None  # None for an orphan read/face with no owner
     bibs: list[Confident[str]] = field(default_factory=list)
+    bib_boxes: list[BoundingBox] = field(default_factory=list)  # aligned with bibs; transient
     faces: list[FaceDetection] = field(default_factory=list)  # transient; never persisted
 
 
@@ -86,9 +87,6 @@ def _in_polygon(point: tuple[float, float], polygon: Sequence[Keypoint]) -> bool
             if x < x_cross:
                 inside = not inside
     return inside
-
-
-# --- faces ---------------------------------------------------------------
 
 
 def _face_cost(person: PersonDetection, face_box: BoundingBox) -> float:
@@ -169,6 +167,7 @@ def group_subjects(
                     person_box=None,
                     bibs=[Confident(value=bib.value, confidence=bib.confidence, source=Source.OCR,
                                     note="no plausible owner")],
+                    bib_boxes=[bib.box],
                 )
             )
             continue
@@ -178,6 +177,7 @@ def group_subjects(
             subjects[scored[0][1]].bibs.append(
                 Confident(value=bib.value, confidence=bib.confidence, source=Source.OCR)
             )
+            subjects[scored[0][1]].bib_boxes.append(bib.box)
         else:
             # near-tie set: candidates whose cost is within the margin of the best
             tied = [i for cost, i in scored if cost * _UNIQUE_MARGIN <= scored[0][0]]
@@ -187,6 +187,7 @@ def group_subjects(
                 subjects[i].bibs.append(
                     Confident(value=bib.value, confidence=bib.confidence / n, source=Source.OCR, note=note)
                 )
+                subjects[i].bib_boxes.append(bib.box)
 
     _assign_faces(groups, persons, subjects, faces)
 

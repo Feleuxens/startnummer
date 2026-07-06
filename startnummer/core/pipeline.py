@@ -14,6 +14,7 @@ from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from typing import NamedTuple
 
 from startnummer.core.association import GroupedSubject, group_subjects
 from startnummer.core.enums import Source, Status
@@ -41,21 +42,53 @@ def _sha256(path: str) -> str:
     return f"sha256:{digest}"
 
 
-def strong_bib(bibs: Sequence[Confident[str]]) -> Confident[str] | None:
-    # Unambiguous = exactly one candidate; ambiguity is left for review/roster.
-    if len(bibs) == 1 and bibs[0].confidence >= STRONG_BIB_CONFIDENCE:
-        return bibs[0]
-    return None
+class StrongBib(NamedTuple):
+    bib: Confident[str]
+    contested: bool  # True when several distinct confident values were tiebroken
 
 
-def _status(record: AnalysisRecord) -> Status:
+def strong_bib(
+    bibs: Sequence[Confident[str]],
+    boxes: Sequence | None = None,  # aligned BoundingBoxes; enables the size tiebreak
+    min_confidence: float = STRONG_BIB_CONFIDENCE,
+) -> StrongBib | None:
+    """The subject's usable bib, if any.
+
+    One distinct confident value -> uncontested. Several distinct confident
+    values (e.g. a club-logo glyph read as a digit next to the real bib) are
+    tiebroken by confidence, then box area; the winner is usable for donation
+    and constraints, but contested=True and the photo must go to review.
+    """
+    eligible = [
+        (i, bib) for i, bib in enumerate(bibs) if bib.confidence >= min_confidence
+    ]
+    if not eligible:
+        return None
+    values = {bib.value for _, bib in eligible}
+    if len(values) == 1:
+        return StrongBib(max((b for _, b in eligible), key=lambda b: b.confidence), False)
+
+    def _area(index: int) -> float:
+        if boxes is None or index >= len(boxes):
+            return 0.0
+        box = boxes[index]
+        return (box.x2 - box.x1) * (box.y2 - box.y1)
+
+    _, winner = max(eligible, key=lambda pair: (pair[1].confidence, _area(pair[0])))
+    return StrongBib(winner, True)
+
+
+def _status(photo: "_PhotoAnalysis", min_bib_confidence: float) -> Status:
     # Structural placeholder until the entry list provides ground truth: AUTO only
-    # if every subject carries exactly one strong bib.
+    # if every subject has an UNCONTESTED strong bib; any tiebreak forces review.
+    record = photo.record
     if not record.subjects:
         return Status.NEEDS_REVIEW
-    if all(strong_bib(s.bibs) is not None for s in record.subjects):
-        return Status.AUTO
-    return Status.NEEDS_REVIEW
+    for subject, grouped in zip(record.subjects, photo.grouped):
+        pick = strong_bib(subject.bibs, grouped.bib_boxes, min_bib_confidence)
+        if pick is None or pick.contested:
+            return Status.NEEDS_REVIEW
+    return Status.AUTO
 
 
 def face_cannot_links(
@@ -70,16 +103,16 @@ def face_cannot_links(
     for keys in by_photo.values():
         links.extend(combinations(keys, 2))
 
-    with_bib = [
-        (item.key, strong_bibs[item.key]) for item in items if item.key in strong_bibs
-    ]
+    with_bib = [(item.key, strong_bibs[item.key]) for item in items if item.key in strong_bibs]
     links.extend(
         (ka, kb) for (ka, va), (kb, vb) in combinations(with_bib, 2) if va != vb
     )
     return links
 
 
-def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float) -> None:
+def _propagate_bibs(
+    photos: list[_PhotoAnalysis], *, min_similarity: float, min_bib_confidence: float
+) -> None:
     """Within-album: give face-matched subjects without a strong bib the bib of
     their cluster. Constraints ensure a cluster never holds two different strong
     bibs; the exactly-one check below remains as a defensive backstop."""
@@ -89,10 +122,18 @@ def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float) -> N
         for si, grouped in enumerate(photo.grouped)
         if grouped.faces
     ]
+    def _pick(key: FaceKey) -> StrongBib | None:
+        photo = photos[key[0]]
+        return strong_bib(
+            photo.record.subjects[key[1]].bibs,
+            photo.grouped[key[1]].bib_boxes,
+            min_bib_confidence,
+        )
+
     strong_bibs = {
-        key: bib.value
+        key: pick.bib.value
         for key in (item.key for item in items)
-        if (bib := strong_bib(photos[key[0]].record.subjects[key[1]].bibs)) is not None
+        if (pick := _pick(key)) is not None
     }
 
     clusters = cluster_faces(
@@ -101,15 +142,11 @@ def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float) -> N
         cannot_link=face_cannot_links(items, strong_bibs),
     )
     for cluster in clusters:
-        donors = {
-            key: strong_bib(photos[key[0]].record.subjects[key[1]].bibs)
-            for key in cluster
-            if key in strong_bibs
-        }
-        values = {bib.value for bib in donors.values()}
+        donors = {key: _pick(key) for key in cluster if key in strong_bibs}
+        values = {pick.bib.value for pick in donors.values()}
         if len(values) != 1:
             continue
-        donor = max(donors.values(), key=lambda b: b.confidence)
+        donor = max((pick.bib for pick in donors.values()), key=lambda b: b.confidence)
         for key in cluster:
             if key in donors:
                 continue
@@ -133,6 +170,7 @@ def analyze_album(
     faces: FaceEngine | None = None,
     cues: CueDetector | None = None,
     min_face_similarity: float = DEFAULT_MIN_SIMILARITY,
+    min_bib_confidence: float = STRONG_BIB_CONFIDENCE,
 ) -> list[AnalysisRecord]:
     module = get(album.sport)
     photos: list[_PhotoAnalysis] = []
@@ -161,8 +199,10 @@ def analyze_album(
         photos.append(_PhotoAnalysis(record=record, grouped=grouped))
 
     if faces is not None:
-        _propagate_bibs(photos, min_similarity=min_face_similarity)
+        _propagate_bibs(
+            photos, min_similarity=min_face_similarity, min_bib_confidence=min_bib_confidence
+        )
 
     for photo in photos:
-        photo.record.status = _status(photo.record)
+        photo.record.status = _status(photo, min_bib_confidence)
     return [photo.record for photo in photos]

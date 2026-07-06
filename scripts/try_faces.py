@@ -34,7 +34,6 @@ CLUSTER_COLORS = [
 _FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/System/Library/Fonts/Supplemental/Aria.ttf",
 ]
 
 
@@ -82,10 +81,16 @@ def main() -> None:
         for si, g in enumerate(grouped)
         if g.faces
     ]
+    
+    def _pick(key):
+        subject = grouped_by_photo[key[0]][key[1]]
+        return strong_bib(subject.bibs, subject.bib_boxes)
+
     strong_bibs = {
-        item.key: bib.value
-        for item in items
-        if (bib := strong_bib(grouped_by_photo[item.key[0]][item.key[1]].bibs)) is not None
+        item.key: pick.bib.value for item in items if (pick := _pick(item.key)) is not None
+    }
+    contested_keys = {
+        item.key for item in items if (pick := _pick(item.key)) is not None and pick.contested
     }
     clusters = cluster_faces(items, cannot_link=face_cannot_links(items, strong_bibs))
     cluster_of = {key: ci for ci, cluster in enumerate(clusters) for key in cluster}
@@ -95,7 +100,9 @@ def main() -> None:
     for ci, cluster in enumerate(clusters):
         values = {strong_bibs[key] for key in cluster if key in strong_bibs}
         if len(values) == 1:
-            donor_bib[ci] = values.pop()
+            value = values.pop()
+            contested = any(key in contested_keys for key in cluster)
+            donor_bib[ci] = f"{value}?" if contested else value  # "?" = tiebroken, review
 
     multi = sum(1 for c in clusters if len(c) > 1)
     print(f"\n{len(clusters)} face cluster(s), {multi} spanning multiple subjects")
