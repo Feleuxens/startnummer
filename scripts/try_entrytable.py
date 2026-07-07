@@ -16,7 +16,7 @@ def main() -> SystemExit | None:
         return SystemExit(1)
 
     entry_list = LeichtathletikDeEntryListParser().parse(args.entry_list)
-    #print(entry_list)
+    print(entry_list)
     return None
 
 

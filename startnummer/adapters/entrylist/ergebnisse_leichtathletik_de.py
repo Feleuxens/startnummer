@@ -94,7 +94,7 @@ class LeichtathletikDeEntryListParser:
         table = EntryList()
         try:
             html = BeautifulSoup(raw_html, features="html.parser")
-            table.competition = "Test Comp"
+            table.competition = ""
             entries = html.find_all("div", {"class": "entryline"})
             for entry in entries:
                 divs = entry.findAll("div")
