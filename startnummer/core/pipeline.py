@@ -18,9 +18,10 @@ from time import perf_counter
 from typing import NamedTuple
 
 from startnummer.core.association import GroupedSubject, group_subjects
+from startnummer.core.entrytable import match_photo, table_supports
 from startnummer.core.enums import Source, Status
 from startnummer.core.identity import DEFAULT_MIN_SIMILARITY, FaceItem, cluster_faces
-from startnummer.core.interfaces import CueDetector, Detector, FaceEngine, OcrReader
+from startnummer.core.interfaces import CueDetector, Detector, EntryList, FaceEngine, OcrReader
 from startnummer.core.models import Confident, Subject
 from startnummer.core.record import Album, AnalysisRecord
 from startnummer.core.sports import get
@@ -28,6 +29,7 @@ from startnummer.core.sports import get
 # Placeholders until tuned against real albums.
 STRONG_BIB_CONFIDENCE = 0.8  # a bib this confident may be propagated to face matches
 PROPAGATION_DISCOUNT = 0.85  # propagated confidence = source confidence * discount
+ATHLETE_AUTO = 0.8  # matched-athlete confidence needed for AUTO (exact / name-confirmed rungs)
 
 FaceKey = tuple[int, int]  # (photo index, subject index)
 
@@ -79,15 +81,43 @@ def strong_bib(
     return StrongBib(winner, True)
 
 
-def _status(photo: "_PhotoAnalysis", min_bib_confidence: float) -> Status:
-    # Structural placeholder until the entry list provides ground truth: AUTO only
-    # if every subject has an UNCONTESTED strong bib; any tiebreak forces review.
+def _subject_needs_review(
+    subject: Subject, grouped: GroupedSubject, min_bib_confidence: float, matched: bool
+) -> bool:
+    """Review is warranted only when there is bib EVIDENCE that failed to resolve.
+
+    - Matched to an athlete confidently -> resolved, no review.
+    - No usable bib evidence at all (bibless person, or only sub-threshold reads)
+      and no match -> nothing to review; a human could add nothing.
+    - Leftover unresolved evidence -> review: an ambiguous/contested strong read,
+      or (with a table) a confident read that matched no athlete, which is
+      usually a misread of a real number and shouldn't be dropped silently.
+    """
+    if subject.athlete is not None and subject.athlete.confidence >= ATHLETE_AUTO:
+        return False
+    if subject.athlete is not None:
+        return True  # matched only weakly (partial/name-only rung): review the guess
+    pick = strong_bib(subject.bibs, grouped.bib_boxes, min_bib_confidence)
+    if pick is None:
+        # No strong read. An ambiguous SPLIT leaves diluted same-value candidates
+        # that individually fall below the gate but are still evidence worth review.
+        return _has_ambiguous_bib(subject)
+    if pick.contested:
+        return True  # tiebroken between distinct confident values
+    # A confident, uncontested read that nonetheless didn't match the table.
+    return matched and subject.athlete is None
+
+
+def _has_ambiguous_bib(subject: Subject) -> bool:
+    return any(b.note is not None and b.note.startswith("ambiguous") for b in subject.bibs)
+
+
+def _status(photo: "_PhotoAnalysis", min_bib_confidence: float, matched: bool) -> Status:
     record = photo.record
     if not record.subjects:
         return Status.NEEDS_REVIEW
     for subject, grouped in zip(record.subjects, photo.grouped):
-        pick = strong_bib(subject.bibs, grouped.bib_boxes, min_bib_confidence)
-        if pick is None or pick.contested:
+        if _subject_needs_review(subject, grouped, min_bib_confidence, matched):
             return Status.NEEDS_REVIEW
     return Status.AUTO
 
@@ -170,6 +200,7 @@ def analyze_album(
     ocr: OcrReader,
     faces: FaceEngine | None = None,
     cues: CueDetector | None = None,
+    entry_list: EntryList | None = None,
     min_face_similarity: float = DEFAULT_MIN_SIMILARITY,
     min_bib_confidence: float = STRONG_BIB_CONFIDENCE,
 ) -> list[AnalysisRecord]:
@@ -196,7 +227,7 @@ def analyze_album(
         time_total_face += perf_counter() - intermediate_start
 
         intermediate_start = perf_counter()
-        grouped = group_subjects(persons, ocr_result.bibs, face_detections)
+        grouped = group_subjects(persons, ocr_result.bibs, face_detections, ocr_result.texts)
         time_total_grouping += perf_counter() - intermediate_start
 
         event = module.new_event()
@@ -204,7 +235,6 @@ def analyze_album(
             event = module.infer(event, cues.detect(path))
 
         subjects = [Subject(bibs=list(g.bibs)) for g in grouped]
-        event = module.resolve(event, subjects)  # no-op until entry lists exist
 
         record = AnalysisRecord(
             owner_id=album.owner_id,
@@ -216,13 +246,26 @@ def analyze_album(
         )
         photos.append(_PhotoAnalysis(record=record, grouped=grouped))
 
+    if entry_list is not None:
+        for photo in photos:
+            _match_and_filter(photo, entry_list, min_bib_confidence)
+
     if faces is not None:
         _propagate_bibs(
             photos, min_similarity=min_face_similarity, min_bib_confidence=min_bib_confidence
         )
 
+    if entry_list is not None:
+        # Second pass: subjects that just RECEIVED a bib via face propagation can
+        # now match (match_photo skips already-matched subjects).
+        for photo in photos:
+            _match_photo(photo, entry_list, min_bib_confidence)
+
     for photo in photos:
-        photo.record.status = _status(photo, min_bib_confidence)
+        photo.record.event = get(photo.record.sport).resolve(
+            photo.record.event, photo.record.subjects
+        )
+        photo.record.status = _status(photo, min_bib_confidence, entry_list is not None)
 
     print(f"Finished pipeline in {perf_counter() - start_time}")
     print(f"Person detection (accumulated): {time_total_person}")
@@ -231,3 +274,32 @@ def analyze_album(
     print(f"Grouping detection (accumulated): {time_total_grouping}")
 
     return [photo.record for photo in photos]
+
+
+def _hints(photo: _PhotoAnalysis) -> list[list[str]]:
+    return [[t.value for t in g.texts] for g in photo.grouped]
+
+
+def _match_photo(photo: _PhotoAnalysis, entries: EntryList, min_bib_confidence: float) -> None:
+    match_photo(
+        photo.record.subjects, _hints(photo), entries, min_bib_confidence=min_bib_confidence
+    )
+
+
+def _match_and_filter(
+    photo: _PhotoAnalysis, entries: EntryList, min_bib_confidence: float
+) -> None:
+    """Match, then delete pure-noise orphans"""
+    _match_photo(photo, entries, min_bib_confidence)
+    keep = [
+        (subject, grouped)
+        for subject, grouped in zip(photo.record.subjects, photo.grouped)
+        if not (
+            grouped.person_box is None
+            and subject.athlete is None
+            and not grouped.faces
+            and not any(table_supports(b.value, entries) for b in subject.bibs)
+        )
+    ]
+    photo.record.subjects = [s for s, _ in keep]
+    photo.grouped = [g for _, g in keep]

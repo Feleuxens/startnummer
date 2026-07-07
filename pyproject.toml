@@ -34,6 +34,7 @@ api = [
 # Heavy image: runs the analysis pipeline. Combine with ocr + face (+ vlm on GPU).
 worker = [
     "startnummer[db]",
+    "beautifulsoup4==4.15.0",
     # numpy pinned because of paddleocr's requirement
     "numpy==2.3.5",
     "pdfplumber==0.11.10",

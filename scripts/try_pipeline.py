@@ -10,6 +10,7 @@ Writes <folder>/analysis.json with the serialized records.
 import argparse
 import json
 import uuid
+from os.path import isdir
 from pathlib import Path
 
 from startnummer.adapters.cache import DEFAULT_CACHE
@@ -40,13 +41,20 @@ def main() -> None:
     parser.add_argument("folder", type=Path)
     parser.add_argument("--no-faces", action="store_true")
     parser.add_argument("--cache-mb", type=int, default=4096, help="decode-cache RAM budget")
+    parser.add_argument(
+        "--entry-list",
+        help="entry table source: saved Competitoroverview HTML file, raw HTML, or URL",
+    )
     args = parser.parse_args()
 
-    paths = sorted(
-        str(p)
-        for p in args.folder.iterdir()
-        if p.suffix.lower() in EXTENSIONS and "annotated" not in p.name and "faces" not in p.name
-    )
+    if isdir(args.folder):
+        paths = sorted(
+            str(p)
+            for p in args.folder.iterdir()
+            if p.suffix.lower() in EXTENSIONS and "annotated" not in p.name and "faces" not in p.name
+        )
+    else:
+        paths = [str(args.folder)]
     if not paths:
         print(f"no images in {args.folder}")
         raise SystemExit(1)
@@ -56,7 +64,21 @@ def main() -> None:
         from startnummer.adapters.face.insight import InsightFaceEngine
         faces = InsightFaceEngine()
 
+    cues = None
+    #if args.cues:
+    #    from startnummer.adapters.cues.yoloworld import YoloWorldCueDetector
+    #    cues = _LoggingCues(YoloWorldCueDetector())
+
     DEFAULT_CACHE.set_max_mb_bytes(args.cache_mb)
+
+    entry_list = None
+    if args.entry_list:
+        from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import (
+            LeichtathletikDeEntryListParser,
+        )
+        entry_list = LeichtathletikDeEntryListParser().parse(args.entry_list)
+        print(f"entry table: {len(entry_list.athletes)} athletes"
+              + (f" ({entry_list.competition})" if entry_list.competition else ""))
 
     album = Album(owner_id=uuid.uuid4(), name=args.folder.name, sport=Sport.ATHLETICS)
     records = analyze_album(
@@ -64,6 +86,8 @@ def main() -> None:
         detector=YoloDetector(),
         ocr=RapidOcrReader(),  # enable_mkldnn=False on PaddlePaddle 3.3.x
         faces=faces,
+        cues=cues,
+        entry_list=entry_list,
     )
 
     for record in records:
@@ -72,17 +96,19 @@ def main() -> None:
         print(f"\n{name}  [{record.status}]  discipline={discipline}")
         for i, subject in enumerate(record.subjects):
             bibs = [f"{b.value}@{b.confidence:.2f}({b.source})" for b in subject.bibs]
-            print(f"  subject {i}: {bibs or 'no bib'}")
+            line = f"  subject {i}: {bibs or 'no bib'}"
+            if subject.athlete is not None:
+                a = subject.athlete
+                club = f", {a.value.club}" if a.value.club else ""
+                line += f"  -> {a.value.name}{club} @{a.confidence:.2f} [{a.note}]"
+            print(line)
 
-    out = args.folder / "analysis.json"
-    out.write_text(
-        json.dumps(
-            [json.loads(r.model_dump_json()) for r in records],
-            indent=2,
-            ensure_ascii=False,
+    if isdir(args.folder):
+        out = args.folder / "analysis.json"
+        out.write_text(
+            json.dumps([json.loads(r.model_dump_json()) for r in records], indent=2, ensure_ascii=False)
         )
-    )
-    print(f"\nwrote {out}")
+        print(f"\nwrote {out}")
     print(DEFAULT_CACHE.stats())
 
 

@@ -1,4 +1,4 @@
-"""Pipeline-stage interfaces and the Roster contract.
+"""Pipeline-stage interfaces and the EntryList contract.
 
 Implementations (pdfplumber, CSV, YOLO, PaddleOCR, InsightFace, Qwen-VL) live in
 startnummer.adapters and depend on this module, never the reverse. Each EntryTable

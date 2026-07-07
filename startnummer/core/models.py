@@ -24,7 +24,7 @@ class Athlete(BaseModel):
     name: str
     bib: str | None = None
     club: str | None = None
-    age_category: str | None = None
+    year_birth: int | None = None
     entered_events: list[str] = Field(
         default_factory=list
     )  # raw entry labels, e.g. "100m"

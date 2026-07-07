@@ -28,7 +28,7 @@ from math import hypot
 from startnummer.core.enums import Source
 from startnummer.core.matching import FORBIDDEN, min_cost_assignment
 from startnummer.core.models import Confident
-from startnummer.core.types import BibRead, BoundingBox, FaceDetection, Keypoint, PersonDetection
+from startnummer.core.types import BibRead, BoundingBox, FaceDetection, Keypoint, PersonDetection, TextRead
 
 # Keypoint path
 _HEAD_MAX_DISTANCE = 1.2  # face-diagonals: head further than this cannot own the face
@@ -50,6 +50,7 @@ class GroupedSubject:
     person_box: BoundingBox | None  # None for an orphan read/face with no owner
     bibs: list[Confident[str]] = field(default_factory=list)
     bib_boxes: list[BoundingBox] = field(default_factory=list)  # aligned with bibs; transient
+    texts: list[TextRead] = field(default_factory=list)  # name hints on this person; transient
     faces: list[FaceDetection] = field(default_factory=list)  # transient; never persisted
 
 
@@ -150,6 +151,7 @@ def group_subjects(
     persons: Sequence[PersonDetection],
     bibs: Sequence[BibRead],
     faces: Sequence[FaceDetection],
+    texts: Sequence[TextRead] = (),
 ) -> list[GroupedSubject]:
     subjects = [GroupedSubject(person_box=p.box) for p in persons]
     groups: list[GroupedSubject] = list(subjects)
@@ -188,6 +190,19 @@ def group_subjects(
                     Confident(value=bib.value, confidence=bib.confidence / n, source=Source.OCR, note=note)
                 )
                 subjects[i].bib_boxes.append(bib.box)
+
+    # Name hints: some bibs carry the surname under the number, so torso ownership
+    # applies unchanged. Best owner only; unowned hints are dropped (an orphan
+    # hint has nothing to disambiguate).
+    for text in texts:
+        center = _center(text.box)
+        best = min(
+            ((cost, i) for i, person in enumerate(persons)
+             if (cost := _bib_cost(person, center)) is not FORBIDDEN),
+            default=None,
+        )
+        if best is not None:
+            subjects[best[1]].texts.append(text)
 
     _assign_faces(groups, persons, subjects, faces)
 
