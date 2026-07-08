@@ -19,13 +19,17 @@ class Confident[T](BaseModel):
     note: str | None = None
 
 
+class BaseDiscipline(StrEnum):
+    pass
+
+
 class Athlete(BaseModel):
     # EntryTable data. The match to an athlete is confidence-wrapped (Subject.athlete);
     name: str
     bib: str | None = None
     club: str | None = None
     year_birth: int | None = None
-    entered_events: list[str] = Field(
+    entered_events: list[BaseDiscipline] = Field(
         default_factory=list
     )  # raw entry labels, e.g. "100m"
     athlete_id: UUID | None = None  # stable key for the face gallery

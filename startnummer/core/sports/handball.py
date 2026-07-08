@@ -6,11 +6,11 @@ from enum import StrEnum
 from typing import Literal
 
 from startnummer.core.enums import Sport
-from startnummer.core.models import Confident, SportEvent
+from startnummer.core.models import BaseDiscipline, Confident, SportEvent
 from startnummer.core.sports.base import SportBase, register
 
 
-class HandballDiscipline(StrEnum):
+class HandballDiscipline(BaseDiscipline):
     MATCH = "match"
     UNKNOWN = "unknown"
 

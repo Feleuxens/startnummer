@@ -109,6 +109,8 @@ def main() -> None:
             json.dumps([json.loads(r.model_dump_json()) for r in records], indent=2, ensure_ascii=False)
         )
         print(f"\nwrote {out}")
+    else:
+        print(json.dumps([json.loads(r.model_dump_json()) for r in records], indent=2, ensure_ascii=False))
     print(DEFAULT_CACHE.stats())
 
 

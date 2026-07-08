@@ -6,52 +6,48 @@ from bs4 import BeautifulSoup
 
 from startnummer.core.interfaces import EntryList
 from startnummer.core.models import Athlete
+from startnummer.core.sports.athletics import AthleticsDiscipline
 
-DISCIPLINE_ABBREVIATIONS: dict[str, str] = {
-    # "100": "100m",
-    # "4x50": "4x50m",
-    # "60H": "60mH",
-    # "WEI": "Weitsprung",
-    "100": "100m",
-    "150": "150m",
-    "200": "200m",
-    "300": "300m",
-    "400": "400m",
-    "600": "600m",
-    "800": "800m",
-    "1K0": "1000m",
-    "1K5": "1500m",
-    "2000": "2000m",
-    "3K0": "3000m",
-    "5K0": "5000m",
-    "10K": "10000m",
-    "4x5": "4x50m",
-    "4x7": "4x75m",
-    "4x1": "4x100m",
-    "4x2": "4x200m",
-    "4x4": "4x400m",
-    "3x8": "3x800m",
-    "3x1": "3x1000m",
-    "60H": "60mH",
-    "80H": "80mH",
-    "10H": "100mH",
-    "11H": "110mH",
-    "30H": "300mH",
-    "40H": "400mH",
-    "15H": "steeplechase",
-    "2KH": "steeplechase",
-    "3KH": "steeplechase",
-    "WEI": "long_jump",
-    "DRE": "triple_jump",
-    "HOC": "high_jump",
-    "STA": "pole_vault",
-    "KUG": "shot_put",
-    "SPE": "javelin",
-    "DIS": "discus",
-    "HAM": "hammer",
-    "BAL": "ball",
-    "5G": "5000mW",  # walking
-
+DISCIPLINE_ABBREVIATIONS: dict[str, AthleticsDiscipline] = {
+    "100": AthleticsDiscipline.M_100,
+    "150": AthleticsDiscipline.M_150,
+    "200": AthleticsDiscipline.M_200,
+    "300": AthleticsDiscipline.M_300,
+    "400": AthleticsDiscipline.M_400,
+    "600": AthleticsDiscipline.M_600,
+    "800": AthleticsDiscipline.M_800,
+    "1K0": AthleticsDiscipline.M_1K,
+    "1K5": AthleticsDiscipline.M_1K5,
+    "2000": AthleticsDiscipline.M_2K,
+    "3K0": AthleticsDiscipline.M_3K,
+    "5K0": AthleticsDiscipline.M_5K,
+    "10K": AthleticsDiscipline.M_10K,
+    "4x5": AthleticsDiscipline.RELAY_4x50,
+    "4x7": AthleticsDiscipline.RELAY_4x75,
+    "4x1": AthleticsDiscipline.RELAY_4x100,
+    "4x2": AthleticsDiscipline.RELAY_4x200,
+    "4x4": AthleticsDiscipline.RELAY_4x400,
+    "3x8": AthleticsDiscipline.RELAY_3x800,
+    "3x1": AthleticsDiscipline.RELAY_3x1K,
+    "60H": AthleticsDiscipline.HURDLES_60,
+    "80H": AthleticsDiscipline.HURDLES_80,
+    "10H": AthleticsDiscipline.HURDLES_100,
+    "11H": AthleticsDiscipline.HURDLES_110,
+    "30H": AthleticsDiscipline.HURDLES_300,
+    "40H": AthleticsDiscipline.HURDLES_400,
+    "15H": AthleticsDiscipline.STEEPLECHASE,
+    "2KH": AthleticsDiscipline.STEEPLECHASE,
+    "3KH": AthleticsDiscipline.STEEPLECHASE,
+    "WEI": AthleticsDiscipline.LONG_JUMP,
+    "DRE": AthleticsDiscipline.TRIPLE_JUMP,
+    "HOC": AthleticsDiscipline.HIGH_JUMP,
+    "STA": AthleticsDiscipline.POLE_VAULT,
+    "KUG": AthleticsDiscipline.SHOT_PUT,
+    "SPE": AthleticsDiscipline.JAVELIN,
+    "DIS": AthleticsDiscipline.DISCUS,
+    "HAM": AthleticsDiscipline.HAMMER,
+    "BAL": AthleticsDiscipline.BALL,
+    "5G": AthleticsDiscipline.WALKING,
 }
 
 
@@ -64,12 +60,12 @@ def _reorder_name(raw: str) -> str:
     return " ".join(raw.split())
 
 
-def _map_discipline(abbreviation: str, mapping: dict[str, str]) -> str:
-    return mapping.get(abbreviation.strip(), abbreviation.strip())
+def _map_discipline(abbreviation: str, mapping: dict[str, AthleticsDiscipline]) -> AthleticsDiscipline:
+    return mapping.get(abbreviation.strip(), AthleticsDiscipline.OTHER)
 
 
 class LeichtathletikDeEntryListParser:
-    def __init__(self, abbreviations: dict[str, str] | None = None) -> None:
+    def __init__(self, abbreviations: dict[str, AthleticsDiscipline] | None = None) -> None:
         self._abbreviations = abbreviations or DISCIPLINE_ABBREVIATIONS
 
     def parse(self, source: str) -> EntryList:
@@ -108,7 +104,7 @@ class LeichtathletikDeEntryListParser:
                 else:
                     name = " ".join(raw_name)
 
-                disciplines = []
+                disciplines: list[AthleticsDiscipline] = []
                 for a in divs[8].findAll("a"):
                     discipline = a.getText().strip()
                     disciplines.append(_map_discipline(discipline, self._abbreviations))

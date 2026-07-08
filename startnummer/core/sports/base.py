@@ -6,6 +6,7 @@ label are inherited. Generic code dispatches through get(sport).
 """
 
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Any, ClassVar, Protocol, TypeVar
 
 from startnummer.core.enums import Lang, Sport
