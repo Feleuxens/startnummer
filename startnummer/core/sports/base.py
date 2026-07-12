@@ -34,6 +34,10 @@ class SportModule(Protocol[E]):
     # detector lands. No-op until per-sport rules are added.
     def infer(self, event: E, cues: Sequence[str]) -> E: ...
 
+    # Localized event phrase for prose, ready to append after the athlete list:
+    # None when the event has no discipline (award ceremony, group shot).
+    def discipline_phrase(self, event: E, lang: Lang) -> str | None: ...
+
 
 class SportBase:
     """No-op defaults. Subclasses set `sport` and override only what has rules.
@@ -56,6 +60,9 @@ class SportBase:
 
     def infer(self, event: E, cues: Sequence[str]) -> E:
         return event
+
+    def discipline_phrase(self, event: Any, lang: Lang) -> str | None:
+        return None
 
 
 _REGISTRY: dict[Sport, SportModule[Any]] = {}

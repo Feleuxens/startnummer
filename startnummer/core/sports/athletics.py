@@ -50,7 +50,7 @@ class AthleticsDiscipline(BaseDiscipline):
     M_2K = ("2000m", "2000m", "2000m", AthleticsKind.FLAT)
     M_3K = ("3000m", "3000m", "3000m", AthleticsKind.FLAT)
     M_5K = ("5000m", "5000m", "5000m", AthleticsKind.FLAT)
-    M_10K = ("10000m", "10000", "10000m", AthleticsKind.FLAT)
+    M_10K = ("10000m", "10000m", "10000m", AthleticsKind.FLAT)
     # HURDLES
     HURDLES_60 = ("60mH", "60m hurdles", "60m Hürden", AthleticsKind.HURDLES)
     HURDLES_80 = ("80mH", "80m hurdles", "80m Hürden", AthleticsKind.HURDLES)
@@ -94,6 +94,24 @@ class AthleticsDiscipline(BaseDiscipline):
 
     def label(self, lang: Lang) -> str | None:
         return self.de if lang is Lang.DE else self.en
+
+    def preposition(self, lang: Lang) -> str:
+        if self.kind == AthleticsKind.FLAT:
+            return "über" if lang is lang.DE else "over"
+        elif self.kind == AthleticsKind.RELAY:
+            return "bei der" if lang is lang.DE else "in the"
+        elif self.kind == AthleticsKind.STEEPLECHASE:
+            return "beim" if lang is lang.DE else "in the"
+        elif self.kind == AthleticsKind.WALKING:
+            return "beim" if lang is lang.DE else "at"
+        elif self.kind == AthleticsKind.HURDLES:
+            return "über" if lang is lang.DE else "over"
+        elif self.kind == AthleticsKind.JUMP:
+            return "beim" if lang is lang.DE else "in the"
+        elif self.kind == AthleticsKind.THROW:
+            return "beim" if lang is lang.DE else "in the"
+        else:
+            return ""
 
     @classmethod
     def of_kind(cls, kind: "AthleticsKind") -> list["AthleticsDiscipline"]:
@@ -226,6 +244,24 @@ class AthleticsModule(SportBase):
             return Tag(TagNamespace.DISCIPLINE, event.custom_label) if event.custom_label else None
         label = discipline.en
         return Tag(TagNamespace.DISCIPLINE, label) if label else None
+
+    def discipline_phrase(self, event: AthleticsEvent, lang: Lang) -> str | None:
+        if event.discipline is None:
+            return None
+        discipline = event.discipline.value
+
+        if discipline is AthleticsDiscipline.OTHER:
+            if not event.custom_label:
+                return None
+            if lang is not Lang.DE:
+                return event.custom_label
+            # Free text: gender is unknown, so no article can be chosen.
+            return f"bei {event.custom_label}"
+
+        label = discipline.label(lang)
+        preposition = discipline.preposition(lang)
+
+        return f"{preposition} {label}"
 
 
 register(AthleticsModule())

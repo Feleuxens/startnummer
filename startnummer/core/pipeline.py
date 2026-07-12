@@ -18,6 +18,7 @@ from time import perf_counter
 from typing import NamedTuple
 
 from startnummer.core.association import GroupedSubject, group_subjects
+from startnummer.core.description import build_description
 from startnummer.core.entrytable import match_photo, table_supports
 from startnummer.core.enums import Source, Status
 from startnummer.core.identity import DEFAULT_MIN_SIMILARITY, FaceItem, cluster_faces
@@ -28,7 +29,7 @@ from startnummer.core.sports import get
 
 # Placeholders until tuned against real albums.
 STRONG_BIB_CONFIDENCE = 0.8  # a bib this confident may be propagated to face matches
-PROPAGATION_DISCOUNT = 0.85  # propagated confidence = source confidence * discount
+PROPAGATION_DISCOUNT = 0.9  # propagated confidence = source confidence * discount
 ATHLETE_AUTO = 0.8  # matched-athlete confidence needed for AUTO (exact / name-confirmed rungs)
 
 FaceKey = tuple[int, int]  # (photo index, subject index)
@@ -266,6 +267,7 @@ def analyze_album(
             photo.record.event, photo.record.subjects
         )
         photo.record.status = _status(photo, min_bib_confidence, entry_list is not None)
+        photo.record.description = build_description(photo.record)
 
     print(f"Finished pipeline in {perf_counter() - start_time}")
     print(f"Person detection (accumulated): {time_total_person}")
