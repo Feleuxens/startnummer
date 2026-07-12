@@ -78,7 +78,7 @@ class AthleticsDiscipline(BaseDiscipline):
     # THROW
     SHOT_PUT = ("shot_put", "Shot put", "Kugelstoßen", AthleticsKind.THROW)
     JAVELIN = ("javelin", "Javelin", "Speerwurf", AthleticsKind.THROW)
-    DISCUS = ("discus", "Discus throw", "Diskus", AthleticsKind.THROW)
+    DISCUS = ("discus", "Discus throw", "Diskuswurf", AthleticsKind.THROW)
     HAMMER = ("hammer", "Hammer throw", "Hammerwurf", AthleticsKind.THROW)
     BALL = ("ball", "Ball throw", "Ballwurf", AthleticsKind.THROW)
     # Fallback for unspecified event
