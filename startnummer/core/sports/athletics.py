@@ -83,6 +83,7 @@ class AthleticsDiscipline(BaseDiscipline):
     BALL = ("ball", "Ball throw", "Ballwurf", AthleticsKind.THROW)
     # Fallback for unspecified event
     OTHER = ("other", None, None, None)
+    NO_EVENT = ("no_event", None, None, None)
 
     def __new__(cls, slug: str, en: str | None, de: str | None, kind: AthleticsKind | None):
         member = str.__new__(cls, slug)
