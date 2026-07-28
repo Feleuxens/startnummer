@@ -1,6 +1,6 @@
 """Outbound ports. Implementations live in startnummer.adapters."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import NamedTuple, Protocol, runtime_checkable
 from uuid import UUID
 
@@ -62,3 +62,30 @@ class Exporter(Protocol):
     def update(self, records: Sequence[AnalysisRecord]) -> None:
         # Mutate path: already-exported images (e.g. direct DB writes).
         ...
+
+
+class BlobRef(NamedTuple):
+    key: str  # storage key, relative to the owner's root; goes on the photo row
+    size: int
+
+
+@runtime_checkable
+class BlobStore(Protocol):
+    # Content-addressed bytes, one copy per owner. Original filename and mime
+    # type are columns on the photo row, not stored here.
+    async def put(
+        self, owner_id: UUID, content_hash: str, data: AsyncIterator[bytes]
+    ) -> int:
+        # Bytes written. A blob that already exists is left alone.
+        ...
+
+    async def read(self, owner_id: UUID, content_hash: str) -> bytes:
+        # Raises BlobNotFound.
+        ...
+
+    async def exists(self, owner_id: UUID, content_hash: str) -> bool: ...
+
+    async def delete(self, owner_id: UUID, content_hash: str) -> None:
+        # Idempotent: deleting a missing blob is not an error.
+        ...
+    
