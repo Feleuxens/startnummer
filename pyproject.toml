@@ -29,6 +29,7 @@ api = [
     "uvicorn[standard]==0.50.0",
     "jinja2==3.1.6",
     "httpx==0.28.1",
+    "xxhash==3.8.1",
 ]
 
 # Heavy image: runs the analysis pipeline. Combine with ocr + face (+ vlm on GPU).
