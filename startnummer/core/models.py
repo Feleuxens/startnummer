@@ -40,6 +40,8 @@ class Subject(BaseModel):
 
     bibs: list[Confident[str]] = Field(default_factory=list)
     athlete: Confident[Athlete] | None = None
+    identity_edited: bool = False  # also preserves an explicit removal of a bib
+    added_manually: bool = False
 
 
 class SportEvent(BaseModel):

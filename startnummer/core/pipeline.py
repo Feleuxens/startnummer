@@ -14,7 +14,7 @@ from typing import NamedTuple
 
 from startnummer.core.association import GroupedSubject, group_subjects
 from startnummer.core.description import build_description
-from startnummer.core.entrytable import match_photo, table_supports
+from startnummer.core.entrytable import ATHLETE_AUTO, match_photo, table_supports, trusted_bib_values
 from startnummer.core.enums import Source, Status
 from startnummer.core.identity import DEFAULT_MIN_SIMILARITY, FaceItem, cluster_faces
 from startnummer.core.interfaces import CueDetector, Detector, EntryList, FaceEngine, OcrReader
@@ -26,7 +26,6 @@ from startnummer.core.types import FaceDetection
 # Placeholders until tuned against real albums.
 STRONG_BIB_CONFIDENCE = 0.8  # a bib this confident may be propagated to face matches
 PROPAGATION_DISCOUNT = 0.9  # propagated confidence = source confidence * discount
-ATHLETE_AUTO = 0.8  # minimum athlete confidence for automatic resolution
 
 FaceKey = tuple[int, int]  # (photo index, subject index)
 
@@ -51,6 +50,8 @@ def strong_bib(
     bibs: Sequence[Confident[str]],
     boxes: Sequence | None = None,  # aligned BoundingBoxes; enables the size tiebreak
     min_confidence: float = STRONG_BIB_CONFIDENCE,
+    *,
+    allowed_values: set[str] | None = None,
 ) -> StrongBib | None:
     """The subject's usable bib, if any.
 
@@ -59,7 +60,11 @@ def strong_bib(
     tiebroken by confidence, then box area; the winner is usable for donation
     and constraints, but contested=True and the photo must go to review.
     """
-    eligible = [(i, bib) for i, bib in enumerate(bibs) if bib.confidence >= min_confidence]
+    eligible = [
+        (i, bib)
+        for i, bib in enumerate(bibs)
+        if bib.confidence >= min_confidence and (allowed_values is None or bib.value in allowed_values)
+    ]
     if not eligible:
         return None
     values = {bib.value for _, bib in eligible}
@@ -127,10 +132,17 @@ def face_cannot_links(
     return links
 
 
-def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float, min_bib_confidence: float) -> None:
+def _propagate_bibs(
+    photos: list[_PhotoAnalysis],
+    *,
+    min_similarity: float,
+    min_bib_confidence: float,
+    entry_list: EntryList | None = None,
+) -> list[list[FaceKey]]:
     """Within-album: give face-matched subjects without a strong bib the bib of
-    their cluster. Constraints ensure a cluster never holds two different strong
-    bibs; the exactly-one check below remains as a defensive backstop."""
+    their cluster. With a roster, only exact roster bibs and manual corrections
+    constrain clusters or donate bibs. Unsupported reads remain review evidence.
+    """
     items = [
         FaceItem(key=(pi, si), embeddings=[f.embedding for f in grouped.faces])
         for pi, photo in enumerate(photos)
@@ -144,6 +156,7 @@ def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float, min_
             photo.record.subjects[key[1]].bibs,
             photo.grouped[key[1]].bib_boxes,
             min_bib_confidence,
+            allowed_values=trusted_bib_values(photo.record.subjects[key[1]].bibs, entry_list),
         )
 
     strong_bibs = {key: pick.bib.value for key in (item.key for item in items) if (pick := _pick(key)) is not None}
@@ -171,6 +184,7 @@ def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float, min_
                     note="propagated from face match within album",
                 )
             )
+    return clusters
 
 
 def analyze_album(
@@ -186,6 +200,7 @@ def analyze_album(
     min_bib_confidence: float = STRONG_BIB_CONFIDENCE,
     on_progress: Callable[[int, int, str], None] | None = None,
     on_faces: Callable[[int, int, Sequence[FaceDetection]], None] | None = None,
+    on_face_groups: Callable[[list[list[FaceKey]]], None] | None = None,
 ) -> list[AnalysisRecord]:
     module = get(album.sport)
     photos: list[_PhotoAnalysis] = []
@@ -208,9 +223,9 @@ def analyze_album(
             event=module.new_event(),
         )
         grouped = []
+        if on_progress:
+            on_progress(index, len(image_paths), "detecting")
         try:
-            if on_progress:
-                on_progress(index, len(image_paths), "detecting")
             intermediate_start = perf_counter()
             persons = detector.detect(path)
             time_total_person += perf_counter() - intermediate_start
@@ -247,10 +262,14 @@ def analyze_album(
     if faces is not None:
         if on_progress:
             on_progress(len(image_paths), len(image_paths), "linking faces")
-        _propagate_bibs(photos, min_similarity=min_face_similarity, min_bib_confidence=min_bib_confidence)
+        groups = _propagate_bibs(
+            photos, min_similarity=min_face_similarity, min_bib_confidence=min_bib_confidence, entry_list=entry_list
+        )
+        if on_face_groups:
+            on_face_groups(groups)
 
     if entry_list is not None:
-        # Match propagated bibs to the roster, keeping existing athlete matches.
+        # Revisit tentative matches after propagation; preserve confirmed identities.
         for photo in photos:
             _match_photo(photo, entry_list, min_bib_confidence)
 

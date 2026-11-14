@@ -22,6 +22,7 @@ EXACT_NAME_CONFIRMED = 0.98
 PARTIAL_UNIQUE = 0.65
 PARTIAL_NAME_PICKED = 0.85
 NAME_ONLY = 0.50
+ATHLETE_AUTO = 0.8  # minimum roster-match confidence for automatic resolution
 
 NAME_SIMILARITY = 0.78  # difflib ratio; OCR reads printed surnames nearly verbatim
 _MIN_PARTIAL_LENGTH = 2  # single-digit partial reads produce too many candidates
@@ -61,6 +62,15 @@ def table_supports(value: str, entries: EntryList) -> bool:
     return any(a.bib and value in a.bib for a in entries.athletes)
 
 
+def trusted_bib_values(bibs: Sequence[Confident[str]], entries: EntryList | None) -> set[str]:
+    """Bibs usable as identity constraints: exact roster values or manual corrections.
+
+    Without a roster, retain the existing confidence-based matching behavior.
+    """
+    roster_bibs = {athlete.bib for athlete in entries.athletes if athlete.bib} if entries is not None else None
+    return {bib.value for bib in bibs if roster_bibs is None or bib.source is Source.MANUAL or bib.value in roster_bibs}
+
+
 def _attach(subject: Subject, athlete: Athlete, confidence: float, note: str) -> None:
     subject.athlete = Confident(value=athlete, confidence=confidence, source=Source.ROSTER, note=note)
 
@@ -83,10 +93,23 @@ def match_subject(
     *,
     min_bib_confidence: float = 0.8,
 ) -> None:
-    """Attach the first roster match, preserving an existing match."""
-    if subject.athlete is not None:
-        return
+    """Match the roster, allowing a propagated bib to replace an unconfirmed guess."""
     by_bib = {a.bib: a for a in entries.athletes if a.bib}
+    if subject.athlete is not None:
+        propagated = {
+            bib.value
+            for bib in subject.bibs
+            if bib.source is Source.FACE_MATCH and bib.confidence >= min_bib_confidence and bib.value in by_bib
+        }
+        if (
+            subject.identity_edited
+            or any(bib.source is Source.MANUAL for bib in subject.bibs)
+            or subject.athlete.source is not Source.ROSTER
+            or subject.athlete.confidence >= ATHLETE_AUTO
+            or len(propagated) != 1
+        ):
+            return
+        subject.athlete = None
 
     # exact: strongest confident bib that the table knows
     for bib in sorted(subject.bibs, key=lambda b: b.confidence, reverse=True):
