@@ -13,6 +13,8 @@ from PIL import Image, UnidentifiedImageError
 
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import LeichtathletikDeEntryListParser
+from startnummer.adapters.face.sessions import propagation_problem
+from startnummer.app.contracts import FaceTarget, PropagationCandidate, PropagationPreview
 from startnummer.core.batch import (
     AnalysisDocument,
     Batch,
@@ -26,10 +28,11 @@ from startnummer.core.batch import (
     WriteState,
 )
 from startnummer.core.description import build_description
-from startnummer.core.entrytable import match_subject
-from startnummer.core.enums import Source, Sport
-from startnummer.core.models import Athlete, Confident
-from startnummer.core.record import Album
+from startnummer.core.entrytable import ATHLETE_AUTO, match_subject, trusted_bib_values
+from startnummer.core.enums import Source, Sport, Status
+from startnummer.core.models import Athlete, Confident, Subject
+from startnummer.core.pipeline import STRONG_BIB_CONFIDENCE
+from startnummer.core.record import Album, AnalysisRecord
 from startnummer.core.sports import get
 from startnummer.core.sports.athletics import AthleticsDiscipline, AthleticsEvent
 
@@ -107,7 +110,14 @@ class Services:
             if self.gallery is None:
                 raise WorkflowError("No gallery is configured")
             album_name, remote = self.gallery.album(gallery_url)
-            photos = [InputPhoto(p.name, self.fetch(p.source_url), p.destination, p.description) for p in remote]
+            photos = []
+            total = 0
+            for remote_photo in remote:
+                data = self.fetch(remote_photo.source_url)
+                total += len(data)
+                if total > self.settings.max_batch_bytes:
+                    raise WorkflowError("Batch exceeds the configured size limit")
+                photos.append(InputPhoto(remote_photo.name, data, remote_photo.destination, remote_photo.description))
             name = (name or "").strip() or album_name
         if not photos:
             raise WorkflowError("The batch contains no photos")
@@ -179,13 +189,93 @@ class Services:
         return batch
 
     def delete_batch(self, owner_id, batch_id):
-        # Clear face data before deleting the batch. Abort if the worker is unavailable.
-        self.store.get(owner_id, batch_id)
-        self.sessions.finish(owner_id, batch_id)
         with self.store.transaction(owner_id) as session:
+            self.store.load(session, owner_id, batch_id, lock=True)
+            # Serialize session cleanup with worker completion and new analysis.
+            self.sessions.finish(owner_id, batch_id)
             keys = self.store.delete_batch(session, owner_id, batch_id)
             self.store.schedule_cleanup(session, owner_id, keys)
         self.store.cleanup(owner_id, lambda key: run(self.blobs.delete(owner_id, key)))
+
+    def analyze(self, owner_id, batch_id):
+        def discard_session():
+            if self.sessions.get(owner_id, batch_id)["available"]:
+                self.sessions.finish(owner_id, batch_id)
+
+        return self.store.enqueue(owner_id, batch_id, before_queue=discard_session)
+
+    def cancel_analysis(self, owner_id, batch_id):
+        with self.store.transaction(owner_id) as session:
+            self.store.load(session, owner_id, batch_id, lock=True)
+            self.sessions.finish(owner_id, batch_id)
+            self.store.cancel(session, owner_id, batch_id)
+
+    def add_person(self, owner_id, batch_id, photo_id, request):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            photo = batch.photo(photo_id)
+            if photo.revision != request.revision:
+                raise Conflict("This photo changed; reload before adding a person")
+            if not 0 <= request.roster_index < len(batch.roster.athletes):
+                raise WorkflowError("Choose a person from this batch's roster")
+            athlete = batch.roster.athletes[request.roster_index]
+            if not athlete.name.strip():
+                raise WorkflowError("The selected roster entry has no name")
+            if photo.analysis is None:
+                photo.analysis = AnalysisDocument(
+                    record=AnalysisRecord(
+                        owner_id=owner_id,
+                        album_id=batch_id,
+                        content_hash=photo.content_hash,
+                        meet_name=batch.album.meet_name,
+                        event=get(batch.album.sport).new_event(),
+                        status=Status.NEEDS_REVIEW,
+                    )
+                )
+            if any(
+                subject.athlete
+                and (subject.athlete.value.name, subject.athlete.value.bib) == (athlete.name, athlete.bib)
+                for subject in photo.analysis.record.subjects
+            ):
+                raise WorkflowError(
+                    "This person is already listed in the photo; select their existing entry to edit it"
+                )
+            photo.analysis.record.subjects.append(
+                Subject(
+                    athlete=Confident[Athlete](
+                        value=athlete.model_copy(deep=True),
+                        confidence=1,
+                        source=Source.MANUAL,
+                        note="Added from the roster during review",
+                    ),
+                    identity_edited=True,
+                    added_manually=True,
+                )
+            )
+            self._regenerate_subject_caption(photo)
+            photo.conflicts_resolved = False
+            photo.changed()
+            self.store.save(session, batch)
+            return photo
+
+    def remove_person(self, owner_id, batch_id, photo_id, subject_index, revision):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            photo = batch.photo(photo_id)
+            if photo.revision != revision:
+                raise Conflict("This photo changed; reload before removing a person")
+            if photo.analysis is None or not 0 <= subject_index < len(photo.analysis.record.subjects):
+                raise WorkflowError("Select a valid person")
+            if not photo.analysis.record.subjects[subject_index].added_manually:
+                raise Conflict("Only people added manually can be removed with this action")
+            photo.analysis.record.subjects.pop(subject_index)
+            self._regenerate_subject_caption(photo)
+            photo.conflicts_resolved = False
+            photo.changed()
+            self.store.save(session, batch)
+            return photo
 
     def edit(self, owner_id, batch_id, photo_id, patch):
         with self.store.transaction(owner_id) as session:
@@ -219,6 +309,7 @@ class Services:
                     subject = record.subjects[patch.subject]
                     if patch.face_session_id is not None:
                         self.sessions.validate(owner_id, batch_id, photo_id, patch.subject, patch.face_session_id)
+                    subject.identity_edited = True
                     if "bib" in fields:
                         subject.bibs = (
                             [Confident[str](value=patch.bib, confidence=1, source=Source.MANUAL)] if patch.bib else []
@@ -293,7 +384,217 @@ class Services:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             self.store.save(session, batch)
-        self.sessions.finish(owner_id, batch_id)
+            self.sessions.finish(owner_id, batch_id)
+
+    @staticmethod
+    def _assign_face_name(photo, subject_index, athlete):
+        record = photo.analysis.record
+        record.subjects[subject_index].athlete = Confident[Athlete](
+            value=athlete.model_copy(deep=True),
+            confidence=1,
+            source=Source.MANUAL,
+            note="Name confirmed from a matching face in this batch",
+        )
+        record.subjects[subject_index].identity_edited = True
+        Services._regenerate_subject_caption(photo)
+
+    @staticmethod
+    def _regenerate_subject_caption(photo):
+        record = photo.analysis.record
+        if record.event.discipline is not None and record.event.discipline.source is not Source.MANUAL:
+            record.event = get(record.sport).new_event()
+        record.event = get(record.sport).resolve(record.event, record.subjects)
+        photo.proposal = record.description = build_description(record)
+        if not photo.caption_edited:
+            photo.caption = photo.proposal
+
+    @staticmethod
+    def _propagation_bibs(subject, roster):
+        trusted = trusted_bib_values(subject.bibs, roster)
+        strong = {bib.value for bib in subject.bibs if bib.confidence >= STRONG_BIB_CONFIDENCE}
+        warnings = [
+            f"Bib read {value} is not in the saved roster; it will remain as uncertain evidence."
+            for value in sorted(strong - trusted)
+        ]
+        return strong & trusted, warnings
+
+    def _propagation_preview(self, batch, request):
+        data = self.sessions.get(batch.album.owner_id, batch.album.id)
+        source = batch.photo(request.source.photo_id)
+        if source.revision != request.source.revision:
+            raise Conflict("Source photo changed; save and reopen matching faces")
+        if data["session_id"] != request.face_session_id or not data["available"]:
+            raise Conflict("Face session expired; saved names and captions are unchanged")
+        problem = propagation_problem(data)
+        if problem:
+            raise Conflict(problem)
+        source_face = next(
+            (face for face in data["photos"].get(str(source.id), []) if face["subject"] == request.source.subject),
+            None,
+        )
+        if (
+            source_face is None
+            or source.analysis is None
+            or request.source.subject >= len(source.analysis.record.subjects)
+        ):
+            raise Conflict("Selected face is unavailable")
+        identity = source.analysis.record.subjects[request.source.subject].athlete
+        if identity is None or identity.source is not Source.MANUAL:
+            raise Conflict("Save a name or roster assignment for this face before finding matches")
+        source_bibs, source_warnings = self._propagation_bibs(
+            source.analysis.record.subjects[request.source.subject], batch.roster
+        )
+        if len(source_bibs) > 1 or (identity.value.bib and source_bibs and identity.value.bib not in source_bibs):
+            raise Conflict("Resolve conflicting bib and name evidence in the source photo before propagating")
+        expected_bib = identity.value.bib or next(iter(source_bibs), None)
+        candidates = []
+        group = source_face.get("group")
+        for photo in batch.photos:
+            seen = set()
+            for face in data["photos"].get(str(photo.id), []):
+                index = face["subject"]
+                if not group or face.get("group") != group or index in seen or photo.id == source.id:
+                    continue
+                seen.add(index)
+                if photo.analysis is None or not 0 <= index < len(photo.analysis.record.subjects):
+                    continue
+                subject = photo.analysis.record.subjects[index]
+                target_bibs, warnings = self._propagation_bibs(subject, batch.roster)
+                requires_bib_confirmation = bool(warnings)
+                replaces_tentative_name = False
+                reason = None
+                state = "eligible"
+                if subject.athlete is not None and subject.athlete.value == identity.value:
+                    reason = "This name is already assigned"
+                    state = "already_named"
+                elif (
+                    subject.identity_edited
+                    or (subject.athlete and subject.athlete.source is Source.MANUAL)
+                    or any(bib.source is Source.MANUAL for bib in subject.bibs)
+                ):
+                    reason = "Manual identity or bib correction; review individually"
+                elif len(target_bibs) > 1 or any(
+                    bib.note
+                    and bib.note.startswith("ambiguous")
+                    and bib.value in trusted_bib_values(subject.bibs, batch.roster)
+                    for bib in subject.bibs
+                ):
+                    reason = "Conflicting bib evidence; review individually"
+                elif expected_bib and target_bibs and expected_bib not in target_bibs:
+                    reason = "Bib differs from the selected person; review individually"
+                elif photo.analysis.record.status is Status.FAILED:
+                    reason = "Photo analysis failed; review individually"
+                elif subject.athlete is not None:
+                    if subject.athlete.source is Source.ROSTER and subject.athlete.confidence < ATHLETE_AUTO:
+                        replaces_tentative_name = True
+                        warnings.append(
+                            f'Tentative name "{subject.athlete.value.name}" '
+                            f"({subject.athlete.confidence:.0%} confidence) "
+                            f'will be replaced by "{identity.value.name}".'
+                        )
+                    else:
+                        reason = "Different athlete already matched; review individually"
+                if reason and state != "already_named":
+                    state = "blocked"
+                proposed = photo.model_copy(deep=True)
+                if reason is None:
+                    self._assign_face_name(proposed, index, identity.value)
+                candidates.append(
+                    PropagationCandidate(
+                        target=FaceTarget(photo_id=photo.id, revision=photo.revision, subject=index),
+                        display_name=photo.display_name,
+                        box=face["box"],
+                        current_name=subject.athlete.value.name if subject.athlete else None,
+                        before_caption=photo.caption,
+                        proposed_caption=proposed.caption,
+                        caption_preserved=photo.caption_edited,
+                        reason=reason,
+                        state=state,
+                        requires_bib_confirmation=requires_bib_confirmation,
+                        replaces_tentative_name=replaces_tentative_name,
+                        warnings=warnings,
+                    )
+                )
+        return PropagationPreview(
+            source=request.source,
+            face_session_id=request.face_session_id,
+            athlete_name=identity.value.name,
+            candidates=candidates,
+            expires_at=data["expires_at"],
+            warnings=[f"Source photo: {warning}" for warning in source_warnings],
+        )
+
+    def preview_propagation(self, owner_id, batch_id, request):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            return self._propagation_preview(batch, request)
+
+    def propagate(self, owner_id, batch_id, request):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            preview = self._propagation_preview(batch, request)
+            candidates = {(c.target.photo_id, c.target.subject): c for c in preview.candidates}
+            keys = [(target.photo_id, target.subject) for target in request.targets]
+            if len(set(keys)) != len(keys):
+                raise WorkflowError("Select each matching face only once")
+            for target in request.targets:
+                candidate = candidates.get((target.photo_id, target.subject))
+                if candidate is None or candidate.state != "eligible" or candidate.target.revision != target.revision:
+                    raise Conflict("A selected match changed or needs individual review; reopen matching faces")
+            if (
+                preview.warnings or any(candidates[key].requires_bib_confirmation for key in keys)
+            ) and not request.acknowledge_unsupported_bibs:
+                raise Conflict("Confirm the unsupported bib reads before assigning names to the selected faces")
+            if any(candidates[key].replaces_tentative_name for key in keys) and not request.acknowledge_tentative_names:
+                raise Conflict("Confirm replacement of the tentative names before assigning the selected name")
+            athlete = (
+                batch.photo(request.source.photo_id).analysis.record.subjects[request.source.subject].athlete.value
+            )
+            changed = {}
+            before = {}
+            for target in request.targets:
+                photo = batch.photo(target.photo_id)
+                before.setdefault(photo.id, photo.model_dump(mode="json"))
+                self._assign_face_name(photo, target.subject, athlete)
+                photo.conflicts_resolved = False
+                changed[photo.id] = photo
+            for photo in changed.values():
+                photo.changed()
+            self.sessions.remember(
+                owner_id,
+                batch_id,
+                request.face_session_id,
+                [
+                    {"photo_id": str(photo.id), "revision": photo.revision, "before": before[photo.id]}
+                    for photo in changed.values()
+                ],
+            )
+            self.store.save(session, batch)
+            return list(changed.values())
+
+    def undo_propagation(self, owner_id, batch_id, request):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            changes = self.sessions.undo(owner_id, batch_id, request.face_session_id, request.undo_id)
+            restored = {}
+            for change in changes:
+                current = batch.photo(UUID(change["photo_id"]))
+                if current.revision != change["revision"]:
+                    raise Conflict("A photo changed after propagation; correct it individually instead of undoing")
+                previous = Photo.model_validate(change["before"])
+                if previous.current_description != current.current_description:
+                    previous.replace_existing = False
+                previous.current_description = current.current_description
+                previous.revision = current.revision
+                previous.changed()
+                restored[previous.id] = previous
+            batch.photos = [restored.get(photo.id, photo) for photo in batch.photos]
+            self.sessions.undo(owner_id, batch_id, request.face_session_id, request.undo_id, consume=True)
+            self.store.save(session, batch)
+            return list(restored.values())
 
     @staticmethod
     def merge_analysis(batch: Batch, results: dict[UUID, AnalysisDocument]):
@@ -306,7 +607,9 @@ class Services:
                 # Keep records with manual identity or discipline decisions. Fresh
                 # detections cannot be mapped reliably to the old subject indexes.
                 has_manual = any(
-                    (s.athlete and s.athlete.source is Source.MANUAL) or any(b.source is Source.MANUAL for b in s.bibs)
+                    s.identity_edited
+                    or (s.athlete and s.athlete.source is Source.MANUAL)
+                    or any(b.source is Source.MANUAL for b in s.bibs)
                     for s in previous.subjects
                 ) or (getattr(previous.event, "discipline", None) and previous.event.discipline.source is Source.MANUAL)
                 if has_manual:
@@ -385,6 +688,50 @@ class Services:
                 self.store.save(session, batch)
                 results.append(operation)
         return results
+
+    def reconcile(self, owner_id, batch_id, operation_id):
+        if self.gallery is None:
+            raise WorkflowError("No gallery is configured")
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            operation = next(
+                (p for p in self.store.publications(session, owner_id, batch_id) if p.id == operation_id), None
+            )
+            if operation is None or operation.restored:
+                raise Conflict("Publishing operation is unavailable or was already restored")
+            result = self.gallery.inspect(operation.change)
+            operation.result = result
+            self.store.save_publication(session, operation)
+            if result.state is WriteState.UNCHANGED:
+                photo = batch.photo(operation.photo_id)
+                if photo.current_description != result.live_value:
+                    photo.current_description = result.live_value
+                    photo.changed()
+                self.store.save(session, batch)
+            return operation
+
+    def refresh_description(self, owner_id, batch_id, photo_id, revision):
+        if self.gallery is None:
+            raise WorkflowError("No gallery is configured")
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            photo = batch.photo(photo_id)
+            if photo.revision != revision or photo.destination is None:
+                raise Conflict("Photo changed or has no gallery destination; reload before refreshing")
+            result = self.gallery.inspect(
+                DescriptionWrite(
+                    destination=photo.destination, expected=photo.current_description, replacement=photo.caption
+                )
+            )
+            if result.state is WriteState.FAILURE:
+                raise WorkflowError(result.error or "Gallery description could not be read")
+            photo.current_description = result.live_value
+            photo.replace_existing = False
+            photo.changed()
+            self.store.save(session, batch)
+            return photo
 
     def restore(self, owner_id, batch_id, operation_id):
         if self.gallery is None:

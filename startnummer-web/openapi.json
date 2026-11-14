@@ -254,6 +254,48 @@
         }
       }
     },
+    "/api/batches/{batch_id}/analysis/cancel": {
+      "post": {
+        "summary": "Cancel Analysis",
+        "operationId": "cancel_analysis_api_batches__batch_id__analysis_cancel_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Cancel Analysis Api Batches  Batch Id  Analysis Cancel Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/batches/{batch_id}/faces": {
       "get": {
         "summary": "Get Faces",
@@ -277,6 +319,164 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FaceView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/face-propagation/preview": {
+      "post": {
+        "summary": "Preview Propagation",
+        "operationId": "preview_propagation_api_batches__batch_id__face_propagation_preview_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PropagationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropagationPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/face-propagation": {
+      "post": {
+        "summary": "Propagate",
+        "operationId": "propagate_api_batches__batch_id__face_propagation_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PropagationApply"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Photo"
+                  },
+                  "title": "Response Propagate Api Batches  Batch Id  Face Propagation Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/face-propagation/undo": {
+      "post": {
+        "summary": "Undo Propagation",
+        "operationId": "undo_propagation_api_batches__batch_id__face_propagation_undo_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PropagationUndo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Photo"
+                  },
+                  "title": "Response Undo Propagation Api Batches  Batch Id  Face Propagation Undo Post"
                 }
               }
             }
@@ -326,6 +526,135 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/Edit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Photo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/photos/{photo_id}/subjects": {
+      "post": {
+        "summary": "Add Person",
+        "operationId": "add_person_api_batches__batch_id__photos__photo_id__subjects_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPerson"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Photo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/photos/{photo_id}/subjects/{subject_index}": {
+      "delete": {
+        "summary": "Remove Person",
+        "operationId": "remove_person_api_batches__batch_id__photos__photo_id__subjects__subject_index__delete",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          },
+          {
+            "name": "subject_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Index"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Revision"
               }
             }
           }
@@ -656,6 +985,116 @@
         }
       }
     },
+    "/api/batches/{batch_id}/publications/{operation_id}/reconcile": {
+      "post": {
+        "summary": "Reconcile",
+        "operationId": "reconcile_api_batches__batch_id__publications__operation_id__reconcile_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publication"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/photos/{photo_id}/refresh-description": {
+      "post": {
+        "summary": "Refresh Description",
+        "operationId": "refresh_description_api_batches__batch_id__photos__photo_id__refresh_description_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Revision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Photo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/photos/{photo_id}": {
       "get": {
         "summary": "Photo Bytes",
@@ -719,6 +1158,27 @@
   },
   "components": {
     "schemas": {
+      "AddPerson": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "roster_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Roster Index"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "roster_index"
+        ],
+        "title": "AddPerson"
+      },
       "Album": {
         "properties": {
           "id": {
@@ -1696,6 +2156,33 @@
         ],
         "title": "FaceBox"
       },
+      "FaceTarget": {
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Photo Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "subject": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Subject"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "photo_id",
+          "revision",
+          "subject"
+        ],
+        "title": "FaceTarget"
+      },
       "FaceView": {
         "properties": {
           "available": {
@@ -1733,6 +2220,38 @@
               }
             ],
             "title": "Expires At"
+          },
+          "undo_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undo Id"
+          },
+          "undo_count": {
+            "type": "integer",
+            "title": "Undo Count",
+            "default": 0
+          },
+          "propagation_available": {
+            "type": "boolean",
+            "title": "Propagation Available",
+            "default": false
+          },
+          "propagation_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Propagation Unavailable Reason"
           }
         },
         "type": "object",
@@ -1898,7 +2417,8 @@
           "queued",
           "running",
           "failed",
-          "done"
+          "done",
+          "cancelled"
         ],
         "title": "JobState"
       },
@@ -2065,6 +2585,237 @@
           "conflicts_resolved"
         ],
         "title": "Photo"
+      },
+      "PropagationApply": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/FaceTarget"
+          },
+          "face_session_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Face Session Id"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/FaceTarget"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Targets"
+          },
+          "acknowledge_unsupported_bibs": {
+            "type": "boolean",
+            "title": "Acknowledge Unsupported Bibs",
+            "default": false
+          },
+          "acknowledge_tentative_names": {
+            "type": "boolean",
+            "title": "Acknowledge Tentative Names",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "face_session_id",
+          "targets"
+        ],
+        "title": "PropagationApply"
+      },
+      "PropagationCandidate": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/FaceTarget"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "box": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Box"
+          },
+          "current_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Name"
+          },
+          "before_caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Caption"
+          },
+          "proposed_caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Caption"
+          },
+          "caption_preserved": {
+            "type": "boolean",
+            "title": "Caption Preserved"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "eligible",
+              "already_named",
+              "blocked"
+            ],
+            "title": "State"
+          },
+          "requires_bib_confirmation": {
+            "type": "boolean",
+            "title": "Requires Bib Confirmation",
+            "default": false
+          },
+          "replaces_tentative_name": {
+            "type": "boolean",
+            "title": "Replaces Tentative Name",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "display_name",
+          "box",
+          "current_name",
+          "before_caption",
+          "proposed_caption",
+          "caption_preserved",
+          "reason",
+          "state",
+          "requires_bib_confirmation",
+          "replaces_tentative_name",
+          "warnings"
+        ],
+        "title": "PropagationCandidate"
+      },
+      "PropagationPreview": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/FaceTarget"
+          },
+          "face_session_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Face Session Id"
+          },
+          "athlete_name": {
+            "type": "string",
+            "title": "Athlete Name"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/PropagationCandidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "expires_at": {
+            "type": "number",
+            "title": "Expires At"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "face_session_id",
+          "athlete_name",
+          "candidates",
+          "expires_at",
+          "warnings"
+        ],
+        "title": "PropagationPreview"
+      },
+      "PropagationRequest": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/FaceTarget"
+          },
+          "face_session_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Face Session Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "face_session_id"
+        ],
+        "title": "PropagationRequest"
+      },
+      "PropagationUndo": {
+        "properties": {
+          "face_session_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Face Session Id"
+          },
+          "undo_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Undo Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "face_session_id",
+          "undo_id"
+        ],
+        "title": "PropagationUndo"
       },
       "Publication": {
         "properties": {
@@ -2251,6 +3002,16 @@
                 "type": "null"
               }
             ]
+          },
+          "identity_edited": {
+            "type": "boolean",
+            "title": "Identity Edited",
+            "default": false
+          },
+          "added_manually": {
+            "type": "boolean",
+            "title": "Added Manually",
+            "default": false
           }
         },
         "type": "object",

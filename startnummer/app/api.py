@@ -15,8 +15,9 @@ from sqlalchemy import create_engine
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.chevereto import Chevereto
 from startnummer.adapters.db.store import Store
-from startnummer.adapters.face.sessions import HttpFaceSessions
+from startnummer.adapters.face.sessions import HttpFaceSessions, propagation_problem
 from startnummer.app.contracts import (
+    AddPerson,
     BatchSummary,
     BatchView,
     ChangePreview,
@@ -24,6 +25,10 @@ from startnummer.app.contracts import (
     Edit,
     FaceView,
     Login,
+    PropagationApply,
+    PropagationPreview,
+    PropagationRequest,
+    PropagationUndo,
     Revision,
     Selected,
     SessionInfo,
@@ -120,8 +125,7 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
     def logout(owner: Owner, response: Response) -> dict:
         # Clear the owner's face sessions before ending the login session.
         for batch in store.list_batches(owner):
-            if sessions.get(owner, batch["id"])["available"]:
-                sessions.finish(owner, batch["id"])
+            service.cancel_analysis(owner, batch["id"])
         response.delete_cookie("startnummer_session")
         return {"signed_out": True}
 
@@ -156,10 +160,11 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
 
     @app.get("/api/batches/{batch_id}", response_model=BatchView)
     def get_batch(batch_id: UUID, owner: Owner):
-        with store.transaction() as db:
+        with store.transaction(owner) as db:
             batch = store.load(db, owner, batch_id)
             publications = store.publications(db, owner, batch_id)
-        return BatchView(batch=batch, publications=publications, jobs=store.jobs(owner, batch_id))
+            jobs = store.jobs(owner, batch_id, session=db)
+            return BatchView(batch=batch, publications=publications, jobs=jobs)
 
     @app.delete("/api/batches/{batch_id}")
     def delete_batch(batch_id: UUID, owner: Owner) -> dict:
@@ -168,20 +173,48 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
 
     @app.post("/api/batches/{batch_id}/analysis", response_model=Job)
     def analyze(batch_id: UUID, owner: Owner):
-        # Discard old face selectors before new subject indexes arrive.
-        store.get(owner, batch_id)
-        if sessions.get(owner, batch_id)["available"]:
-            sessions.finish(owner, batch_id)
-        return store.enqueue(owner, batch_id)
+        return service.analyze(owner, batch_id)
+
+    @app.post("/api/batches/{batch_id}/analysis/cancel")
+    def cancel_analysis(batch_id: UUID, owner: Owner) -> dict:
+        service.cancel_analysis(owner, batch_id)
+        return {"cancelled": True}
 
     @app.get("/api/batches/{batch_id}/faces", response_model=FaceView)
     def get_faces(batch_id: UUID, owner: Owner):
-        store.get(owner, batch_id)
-        return sessions.get(owner, batch_id)
+        with store.transaction(owner) as db:
+            store.load(db, owner, batch_id, lock=True)
+            try:
+                store.require_idle(db, owner, batch_id)
+            except Conflict:
+                return {"available": False, "session_id": None, "photos": {}}
+            data = sessions.get(owner, batch_id)
+            problem = propagation_problem(data)
+            return {**data, "propagation_available": problem is None, "propagation_unavailable_reason": problem}
+
+    @app.post("/api/batches/{batch_id}/face-propagation/preview", response_model=PropagationPreview)
+    def preview_propagation(batch_id: UUID, body: PropagationRequest, owner: Owner):
+        return service.preview_propagation(owner, batch_id, body)
+
+    @app.post("/api/batches/{batch_id}/face-propagation", response_model=list[Photo])
+    def propagate(batch_id: UUID, body: PropagationApply, owner: Owner):
+        return service.propagate(owner, batch_id, body)
+
+    @app.post("/api/batches/{batch_id}/face-propagation/undo", response_model=list[Photo])
+    def undo_propagation(batch_id: UUID, body: PropagationUndo, owner: Owner):
+        return service.undo_propagation(owner, batch_id, body)
 
     @app.patch("/api/batches/{batch_id}/photos/{photo_id}", response_model=Photo)
     def edit_photo(batch_id: UUID, photo_id: UUID, body: Edit, owner: Owner):
         return service.edit(owner, batch_id, photo_id, body)
+
+    @app.post("/api/batches/{batch_id}/photos/{photo_id}/subjects", response_model=Photo)
+    def add_person(batch_id: UUID, photo_id: UUID, body: AddPerson, owner: Owner):
+        return service.add_person(owner, batch_id, photo_id, body)
+
+    @app.delete("/api/batches/{batch_id}/photos/{photo_id}/subjects/{subject_index}", response_model=Photo)
+    def remove_person(batch_id: UUID, photo_id: UUID, subject_index: int, body: Revision, owner: Owner):
+        return service.remove_person(owner, batch_id, photo_id, subject_index, body.revision)
 
     @app.post("/api/batches/{batch_id}/approve")
     def approve(batch_id: UUID, body: Selected, owner: Owner) -> dict:
@@ -208,6 +241,14 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
     @app.post("/api/batches/{batch_id}/publications/{operation_id}/restore", response_model=WriteResult)
     def restore(batch_id: UUID, operation_id: UUID, owner: Owner):
         return service.restore(owner, batch_id, operation_id)
+
+    @app.post("/api/batches/{batch_id}/publications/{operation_id}/reconcile", response_model=Publication)
+    def reconcile(batch_id: UUID, operation_id: UUID, owner: Owner):
+        return service.reconcile(owner, batch_id, operation_id)
+
+    @app.post("/api/batches/{batch_id}/photos/{photo_id}/refresh-description", response_model=Photo)
+    def refresh_description(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner):
+        return service.refresh_description(owner, batch_id, photo_id, body.revision)
 
     @app.get("/api/photos/{photo_id}")
     def photo_bytes(photo_id: UUID, owner: Owner):

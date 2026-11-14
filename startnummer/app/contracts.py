@@ -1,6 +1,7 @@
 """HTTP contracts used to generate the frontend's TypeScript client."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -49,6 +50,10 @@ class Revision(Input):
     revision: int = Field(ge=0)
 
 
+class AddPerson(Revision):
+    roster_index: int = Field(ge=0)
+
+
 class Edit(Input):
     revision: int = Field(ge=0)
     caption: str | None = None
@@ -86,3 +91,51 @@ class FaceView(BaseModel):
     session_id: str | None
     photos: dict[str, list[FaceBox]]
     expires_at: float | None = None
+    undo_id: str | None = None
+    undo_count: int = 0
+    propagation_available: bool = False
+    propagation_unavailable_reason: str | None = None
+
+
+class FaceTarget(Selection):
+    subject: int = Field(ge=0)
+
+
+class PropagationRequest(Input):
+    source: FaceTarget
+    face_session_id: str = Field(min_length=1)
+
+
+class PropagationApply(PropagationRequest):
+    targets: list[FaceTarget] = Field(min_length=1)
+    acknowledge_unsupported_bibs: bool = False
+    acknowledge_tentative_names: bool = False
+
+
+class PropagationUndo(Input):
+    face_session_id: str = Field(min_length=1)
+    undo_id: str = Field(min_length=1)
+
+
+class PropagationCandidate(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+    target: FaceTarget
+    display_name: str
+    box: list[float]
+    current_name: str | None
+    before_caption: str | None
+    proposed_caption: str | None
+    caption_preserved: bool
+    reason: str | None
+    state: Literal["eligible", "already_named", "blocked"]
+    requires_bib_confirmation: bool = False
+    replaces_tentative_name: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PropagationPreview(PropagationRequest):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+    athlete_name: str
+    candidates: list[PropagationCandidate]
+    expires_at: float
+    warnings: list[str] = Field(default_factory=list)

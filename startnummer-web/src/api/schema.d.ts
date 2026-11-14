@@ -76,6 +76,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/{batch_id}/analysis/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Analysis */
+        post: operations["cancel_analysis_api_batches__batch_id__analysis_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}/faces": {
         parameters: {
             query?: never;
@@ -87,6 +104,57 @@ export interface paths {
         get: operations["get_faces_api_batches__batch_id__faces_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/face-propagation/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Propagation */
+        post: operations["preview_propagation_api_batches__batch_id__face_propagation_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/face-propagation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propagate */
+        post: operations["propagate_api_batches__batch_id__face_propagation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/face-propagation/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Propagation */
+        post: operations["undo_propagation_api_batches__batch_id__face_propagation_undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -108,6 +176,40 @@ export interface paths {
         head?: never;
         /** Edit Photo */
         patch: operations["edit_photo_api_batches__batch_id__photos__photo_id__patch"];
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/photos/{photo_id}/subjects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Person */
+        post: operations["add_person_api_batches__batch_id__photos__photo_id__subjects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/photos/{photo_id}/subjects/{subject_index}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Person */
+        delete: operations["remove_person_api_batches__batch_id__photos__photo_id__subjects__subject_index__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/batches/{batch_id}/approve": {
@@ -212,6 +314,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/{batch_id}/publications/{operation_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reconcile */
+        post: operations["reconcile_api_batches__batch_id__publications__operation_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/photos/{photo_id}/refresh-description": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Description */
+        post: operations["refresh_description_api_batches__batch_id__photos__photo_id__refresh_description_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/photos/{photo_id}": {
         parameters: {
             query?: never;
@@ -250,6 +386,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddPerson */
+        AddPerson: {
+            /** Revision */
+            revision: number;
+            /** Roster Index */
+            roster_index: number;
+        };
         /** Album */
         Album: {
             /**
@@ -561,6 +704,18 @@ export interface components {
             /** Box */
             box: number[];
         };
+        /** FaceTarget */
+        FaceTarget: {
+            /**
+             * Photo Id
+             * Format: uuid
+             */
+            photo_id: string;
+            /** Revision */
+            revision: number;
+            /** Subject */
+            subject: number;
+        };
         /** FaceView */
         FaceView: {
             /** Available */
@@ -573,6 +728,20 @@ export interface components {
             };
             /** Expires At */
             expires_at?: number | null;
+            /** Undo Id */
+            undo_id?: string | null;
+            /**
+             * Undo Count
+             * @default 0
+             */
+            undo_count: number;
+            /**
+             * Propagation Available
+             * @default false
+             */
+            propagation_available: boolean;
+            /** Propagation Unavailable Reason */
+            propagation_unavailable_reason?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -653,7 +822,7 @@ export interface components {
          * JobState
          * @enum {string}
          */
-        JobState: "queued" | "running" | "failed" | "done";
+        JobState: "queued" | "running" | "failed" | "done" | "cancelled";
         /** Login */
         Login: {
             /** Username */
@@ -718,6 +887,86 @@ export interface components {
              * @default false
              */
             conflicts_resolved: boolean;
+        };
+        /** PropagationApply */
+        PropagationApply: {
+            source: components["schemas"]["FaceTarget"];
+            /** Face Session Id */
+            face_session_id: string;
+            /** Targets */
+            targets: components["schemas"]["FaceTarget"][];
+            /**
+             * Acknowledge Unsupported Bibs
+             * @default false
+             */
+            acknowledge_unsupported_bibs: boolean;
+            /**
+             * Acknowledge Tentative Names
+             * @default false
+             */
+            acknowledge_tentative_names: boolean;
+        };
+        /** PropagationCandidate */
+        PropagationCandidate: {
+            target: components["schemas"]["FaceTarget"];
+            /** Display Name */
+            display_name: string;
+            /** Box */
+            box: number[];
+            /** Current Name */
+            current_name: string | null;
+            /** Before Caption */
+            before_caption: string | null;
+            /** Proposed Caption */
+            proposed_caption: string | null;
+            /** Caption Preserved */
+            caption_preserved: boolean;
+            /** Reason */
+            reason: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "eligible" | "already_named" | "blocked";
+            /**
+             * Requires Bib Confirmation
+             * @default false
+             */
+            requires_bib_confirmation: boolean;
+            /**
+             * Replaces Tentative Name
+             * @default false
+             */
+            replaces_tentative_name: boolean;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** PropagationPreview */
+        PropagationPreview: {
+            source: components["schemas"]["FaceTarget"];
+            /** Face Session Id */
+            face_session_id: string;
+            /** Athlete Name */
+            athlete_name: string;
+            /** Candidates */
+            candidates: components["schemas"]["PropagationCandidate"][];
+            /** Expires At */
+            expires_at: number;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** PropagationRequest */
+        PropagationRequest: {
+            source: components["schemas"]["FaceTarget"];
+            /** Face Session Id */
+            face_session_id: string;
+        };
+        /** PropagationUndo */
+        PropagationUndo: {
+            /** Face Session Id */
+            face_session_id: string;
+            /** Undo Id */
+            undo_id: string;
         };
         /** Publication */
         Publication: {
@@ -806,6 +1055,16 @@ export interface components {
             /** Bibs */
             bibs?: components["schemas"]["Confident_str_"][];
             athlete?: components["schemas"]["Confident_Athlete_"] | null;
+            /**
+             * Identity Edited
+             * @default false
+             */
+            identity_edited: boolean;
+            /**
+             * Added Manually
+             * @default false
+             */
+            added_manually: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -1065,6 +1324,39 @@ export interface operations {
             };
         };
     };
+    cancel_analysis_api_batches__batch_id__analysis_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_faces_api_batches__batch_id__faces_get: {
         parameters: {
             query?: never;
@@ -1096,6 +1388,111 @@ export interface operations {
             };
         };
     };
+    preview_propagation_api_batches__batch_id__face_propagation_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PropagationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropagationPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propagate_api_batches__batch_id__face_propagation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PropagationApply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_propagation_api_batches__batch_id__face_propagation_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PropagationUndo"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     edit_photo_api_batches__batch_id__photos__photo_id__patch: {
         parameters: {
             query?: never;
@@ -1109,6 +1506,79 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["Edit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_person_api_batches__batch_id__photos__photo_id__subjects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                photo_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddPerson"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_person_api_batches__batch_id__photos__photo_id__subjects__subject_index__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                photo_id: string;
+                subject_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
             };
         };
         responses: {
@@ -1323,6 +1793,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WriteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconcile_api_batches__batch_id__publications__operation_id__reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Publication"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_description_api_batches__batch_id__photos__photo_id__refresh_description_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                photo_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"];
                 };
             };
             /** @description Validation Error */

@@ -9,7 +9,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import create_engine
 
@@ -17,7 +17,7 @@ from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.app.services import Services, run
-from startnummer.core.batch import AnalysisDocument, Conflict, Job
+from startnummer.core.batch import AnalysisDocument, Conflict, Job, WorkflowError
 from startnummer.core.enums import Status
 from startnummer.core.pipeline import analyze_album
 from startnummer.core.record import AnalysisRecord
@@ -54,7 +54,7 @@ class Worker:
         try:
             self._execute(job, progress, lost)
         except Exception as exc:
-            self.sessions.finish(job.owner_id, job.batch_id)
+            self.sessions.finish(job.owner_id, job.batch_id, run_id=str(job.lease_token))
             self.store.fail(job, f"Analysis job failed ({type(exc).__name__})")
         finally:
             stopped.set()
@@ -63,11 +63,12 @@ class Worker:
 
     def _execute(self, job: Job, progress, lost):
         batch = self.store.get(job.owner_id, job.batch_id)
-        self.sessions.finish(job.owner_id, job.batch_id)
-        results, geometry = {}, {}
+        results, geometry, match_groups = {}, {}, {}
         with TemporaryDirectory(prefix="startnummer-worker-") as directory:
             paths, staged = [], []
             for photo in batch.photos:
+                if lost.is_set():
+                    raise Conflict("Worker lease was lost")
                 try:
                     data = run(self.blobs.read(job.owner_id, photo.blob_key))
                     # The adapter receives generated paths, never user filenames.
@@ -99,8 +100,19 @@ class Worker:
             def on_faces(photo_index, subject_index, detections):
                 photo = staged[photo_index]
                 geometry.setdefault(str(photo.id), []).extend(
-                    {"subject": subject_index, "box": list(face.box)} for face in detections
+                    {
+                        "subject": subject_index,
+                        "box": list(face.box),
+                        "group": match_groups.get((photo_index, subject_index)),
+                    }
+                    for face in detections
                 )
+
+            def on_face_groups(groups):
+                for group in groups:
+                    group_id = str(uuid4())
+                    for key in group:
+                        match_groups[key] = group_id
 
             records = analyze_album(
                 batch.album,
@@ -111,6 +123,7 @@ class Worker:
                 entry_list=batch.roster,
                 on_progress=on_progress,
                 on_faces=on_faces,
+                on_face_groups=on_face_groups,
             )
             for photo, record in zip(staged, records, strict=True):
                 record.source_path = None
@@ -125,7 +138,7 @@ class Worker:
                 geometry.pop(str(photo_id), None)
             # Hold the batch lock while exposing face geometry so completion
             # cannot recreate a session that review has already closed.
-            self.sessions.put(job.owner_id, job.batch_id, geometry)
+            self.sessions.put(job.owner_id, job.batch_id, geometry, run_id=str(job.lease_token))
 
         self.store.complete(job, merge)
 
@@ -141,7 +154,10 @@ def session_server(sessions: FaceSessions, secret: str, port: int):
         def do_DELETE(self):
             self.handle_session(True)
 
-        def handle_session(self, finish):
+        def do_POST(self):
+            self.handle_session(False, edit=True)
+
+        def handle_session(self, finish, edit=False):
             if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + secret):
                 self.send_error(401)
                 return
@@ -155,8 +171,31 @@ def session_server(sessions: FaceSessions, secret: str, port: int):
                 return
             if finish:
                 sessions.finish(owner, batch)
-            data = json.dumps(sessions.get(owner, batch)).encode()
-            self.send_response(200)
+            status = 200
+            result = sessions.get(owner, batch)
+            if edit:
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 10 * 1024 * 1024:
+                        raise ValueError
+                    payload = json.loads(self.rfile.read(length))
+                    session_id = payload["session_id"]
+                    if payload["action"] == "remember":
+                        result = {"undo_id": sessions.remember(owner, batch, session_id, payload["changes"])}
+                    elif payload["action"] == "undo":
+                        result = {
+                            "changes": sessions.undo(
+                                owner, batch, session_id, payload["undo_id"], consume=payload.get("consume", False)
+                            )
+                        }
+                    else:
+                        raise ValueError
+                except WorkflowError as exc:
+                    status, result = 409, {"detail": str(exc)}
+                except (ValueError, KeyError, TypeError):
+                    status, result = 400, {"detail": "Invalid face-session request"}
+            data = json.dumps(result).encode()
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(data)))
@@ -178,10 +217,16 @@ def main():
         "--once", action="store_true", help="Process one job; face sessions end when this command exits"
     )
     parser.add_argument("--no-faces", action="store_true")
+    parser.add_argument("--cache-mb", type=int, default=512, help="Maximum decoded-image cache size in MiB")
     args = parser.parse_args()
+    if args.cache_mb < 0:
+        parser.error("--cache-mb must be nonnegative")
     # Load ML runtimes only in the worker process.
+    from startnummer.adapters.cache import DEFAULT_CACHE
     from startnummer.adapters.detect.yolo import YoloDetector
     from startnummer.adapters.ocr.rapid import RapidOcrReader
+
+    DEFAULT_CACHE.set_max_mb_bytes(args.cache_mb)
 
     store = Store(create_engine(os.environ["STARTNUMMER_DATABASE_URL"], pool_pre_ping=True))
     blobs = FilesystemBlobStore.from_env()

@@ -92,7 +92,7 @@ class Store:
             ]
 
     def get(self, owner_id: UUID, batch_id: UUID) -> Batch:
-        with self.transaction() as session:
+        with self.transaction(owner_id) as session:
             return self.load(session, owner_id, batch_id)
 
     def referenced(self, session: Session, owner_id: UUID, key: str) -> bool:
@@ -145,7 +145,7 @@ class Store:
                 raise Missing("Photo not found")
             return Photo.model_validate(row.document)
 
-    def enqueue(self, owner_id: UUID, batch_id: UUID) -> Job:
+    def enqueue(self, owner_id: UUID, batch_id: UUID, before_queue=None) -> Job:
         with self.transaction(owner_id) as session:
             batch = self.load(session, owner_id, batch_id, lock=True)
             pending = session.scalar(
@@ -157,21 +157,42 @@ class Store:
             )
             if pending is not None:
                 raise Conflict("Analysis is already queued or running")
+            if before_queue is not None:
+                before_queue()
+            for photo in batch.photos:
+                photo.changed()
+            self.save(session, batch)
             job = Job(owner_id=owner_id, batch_id=batch_id, total=len(batch.photos))
             session.add(JobRow(**job.model_dump()))
             return job
 
-    def jobs(self, owner_id: UUID, batch_id: UUID) -> list[Job]:
-        with self.transaction() as session:
-            self.load(session, owner_id, batch_id)
-            return [
-                self._job(row)
-                for row in session.scalars(
-                    select(JobRow)
-                    .where(JobRow.owner_id == owner_id, JobRow.batch_id == batch_id)
-                    .order_by(JobRow.created_at.desc())
-                )
-            ]
+    def cancel(self, session: Session, owner_id: UUID, batch_id: UUID) -> None:
+        rows = session.scalars(
+            select(JobRow)
+            .where(
+                JobRow.owner_id == owner_id,
+                JobRow.batch_id == batch_id,
+                JobRow.state.in_([JobState.QUEUED, JobState.RUNNING]),
+            )
+            .with_for_update()
+        )
+        for row in rows:
+            row.state, row.phase = JobState.CANCELLED, "cancelled"
+            row.lease_token = row.lease_until = None
+
+    def jobs(self, owner_id: UUID, batch_id: UUID, *, session: Session | None = None) -> list[Job]:
+        if session is None:
+            with self.transaction(owner_id) as current:
+                return self.jobs(owner_id, batch_id, session=current)
+        self.load(session, owner_id, batch_id)
+        return [
+            self._job(row)
+            for row in session.scalars(
+                select(JobRow)
+                .where(JobRow.owner_id == owner_id, JobRow.batch_id == batch_id)
+                .order_by(JobRow.created_at.desc())
+            )
+        ]
 
     @staticmethod
     def _job(row: JobRow) -> Job:

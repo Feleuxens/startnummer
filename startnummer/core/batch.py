@@ -102,6 +102,7 @@ class JobState(StrEnum):
     RUNNING = "running"
     FAILED = "failed"
     DONE = "done"
+    CANCELLED = "cancelled"
 
 
 class Job(BaseModel):
@@ -149,6 +150,7 @@ class WriteResult(BaseModel):
 
 class DescriptionWriter(Protocol):
     def write(self, change: DescriptionWrite) -> WriteResult: ...
+    def inspect(self, change: DescriptionWrite) -> WriteResult: ...
 
 
 class Publication(BaseModel):

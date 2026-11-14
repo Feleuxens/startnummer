@@ -69,6 +69,12 @@ class FakeGallery:
             for i in (1, 2)
         ]
 
+    def inspect(self, change: DescriptionWrite):
+        live = self.values[change.destination.image_id]
+        return WriteResult(
+            state=WriteState.UNCHANGED if live == change.replacement else WriteState.CONFLICT, live_value=live
+        )
+
     def write(self, change: DescriptionWrite):
         self.writes.append(change)
         live = self.values[change.destination.image_id]

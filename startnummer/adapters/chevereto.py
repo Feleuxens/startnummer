@@ -136,6 +136,26 @@ class Chevereto:
                 )
             return album["album_name"], photos
 
+    def inspect(self, change: DescriptionWrite) -> WriteResult:
+        """Read the live value without applying or restoring anything."""
+        if change.destination.instance.rstrip("/") != self.base_url:
+            return WriteResult(state=WriteState.FAILURE, error="Destination is not the configured gallery")
+        try:
+            with self.connect() as db, db.cursor() as cursor:
+                cursor.execute(
+                    "SELECT image_description FROM chv_images WHERE image_id=%s", (change.destination.image_id,)
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return WriteResult(state=WriteState.FAILURE, error="Gallery image no longer exists")
+                live = row["image_description"]
+                return WriteResult(
+                    state=WriteState.UNCHANGED if live == change.replacement else WriteState.CONFLICT,
+                    live_value=live,
+                )
+        except pymysql.MySQLError:
+            return WriteResult(state=WriteState.FAILURE, error="Could not read the gallery description; retry later")
+
     def write(self, change: DescriptionWrite) -> WriteResult:
         if change.destination.instance.rstrip("/") != self.base_url:
             return WriteResult(state=WriteState.FAILURE, error="Destination is not the configured gallery")

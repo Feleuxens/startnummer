@@ -123,6 +123,8 @@ def test_mariadb_exact_null_safe_writes_and_restore():
     target = Destination(instance="http://gallery.test", image_id=1, page_url="http://gallery.test/image/1")
     change = DescriptionWrite(destination=target, expected=None, replacement="A 'quoted' caption")
     assert gallery.write(change).state is WriteState.APPLIED
+    assert gallery.inspect(change).state is WriteState.UNCHANGED
+    assert gallery.inspect(change).live_value == change.replacement
     assert gallery.write(change).state is WriteState.UNCHANGED
     assert (
         gallery.write(change.model_copy(update={"expected": "wrong", "replacement": "overwrite"})).state
@@ -135,5 +137,97 @@ def test_mariadb_exact_null_safe_writes_and_restore():
     exact = DescriptionWrite(
         destination=target.model_copy(update={"image_id": 2}), expected="resume", replacement="changed"
     )
+    assert gallery.inspect(exact).state is WriteState.CONFLICT
+    assert gallery.inspect(exact).live_value == "Résumé"
     assert gallery.write(exact).state is WriteState.CONFLICT
     assert gallery.write(exact.model_copy(update={"expected": "Résumé"})).state is WriteState.APPLIED
+
+
+def test_postgres_finish_and_new_analysis_serialize_face_lifecycle(postgres):
+    import threading
+    from concurrent.futures import TimeoutError
+
+    from startnummer.adapters.face.sessions import FaceSessions
+    from startnummer.app.services import Services
+
+    Base.metadata.create_all(postgres.engine)
+    saved = batch(postgres)
+    owner, batch_id = saved.album.owner_id, saved.album.id
+    entered, release = threading.Event(), threading.Event()
+    sessions = FaceSessions()
+    sessions.put(owner, batch_id, {str(saved.photos[0].id): [{"subject": 0, "box": [0, 0, 1, 1]}]})
+    finish = sessions.finish
+
+    def held_finish(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        finish(*args, **kwargs)
+
+    sessions.finish = held_finish
+    service = Services(postgres, None, None, sessions)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        ending = pool.submit(service.finish, owner, batch_id)
+        try:
+            assert entered.wait(5)
+            queued = pool.submit(service.analyze, owner, batch_id)
+            with pytest.raises(TimeoutError):
+                queued.result(timeout=0.1)
+        finally:
+            release.set()
+        ending.result(timeout=5)
+        assert queued.result(timeout=5).state == "queued"
+    assert not sessions.get(owner, batch_id)["available"]
+
+
+def test_postgres_delete_fences_worker_and_clears_session(postgres):
+    from types import SimpleNamespace
+
+    from startnummer.adapters.face.sessions import FaceSessions
+    from startnummer.app.services import Services
+
+    Base.metadata.create_all(postgres.engine)
+    saved = batch(postgres)
+    owner, batch_id = saved.album.owner_id, saved.album.id
+    postgres.enqueue(owner, batch_id)
+    job = postgres.claim()
+    sessions = FaceSessions()
+    sessions.put(owner, batch_id, {str(saved.photos[0].id): [{"subject": 0, "box": [0, 0, 1, 1]}]})
+
+    async def delete_blob(owner, key):
+        pass
+
+    Services(postgres, SimpleNamespace(delete=delete_blob), None, sessions).delete_batch(owner, batch_id)
+    with pytest.raises(Conflict, match="lease"):
+        postgres.complete(job, lambda value: None)
+    assert not sessions.get(owner, batch_id)["available"]
+    assert not postgres.heartbeat(job, 90, 1, "stale")
+
+
+def test_postgres_batch_read_waits_for_worker_result_commit(postgres):
+    import threading
+    from concurrent.futures import TimeoutError
+
+    Base.metadata.create_all(postgres.engine)
+    saved = batch(postgres)
+    owner, batch_id = saved.album.owner_id, saved.album.id
+    postgres.enqueue(owner, batch_id)
+    job = postgres.claim()
+    entered, release = threading.Event(), threading.Event()
+
+    def held_merge(value):
+        value.photos[0].caption = "Completed result"
+        entered.set()
+        assert release.wait(5)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        completing = pool.submit(postgres.complete, job, held_merge)
+        try:
+            assert entered.wait(5)
+            reading = pool.submit(postgres.get, owner, batch_id)
+            with pytest.raises(TimeoutError):
+                reading.result(timeout=0.1)
+        finally:
+            release.set()
+        completing.result(timeout=5)
+        assert reading.result(timeout=5).photos[0].caption == "Completed result"
+    assert postgres.jobs(owner, batch_id)[0].state == "done"
