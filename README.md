@@ -61,7 +61,15 @@ credentials belong to the API; the worker command removes the gallery DSN from
 its environment. The worker's private face-session service binds to
 `127.0.0.1:8766`. `--no-faces` disables face inference. `--once` processes one job
 and exits, which also ends any face-review session. Model adapters may download
-weights on first use.
+weights on first use. The worker's decoded-image cache is limited to 512 MiB by
+default; use `--cache-mb` to change the limit or `--cache-mb 0` to disable it.
+
+Finish any active face review before restarting the worker after an update.
+An API restart preserves face data held by the running worker; a worker restart
+clears it. If a session was created by an incompatible worker, the review screen
+explains why propagation is unavailable. Individual face naming remains usable.
+To get match groups, restart the updated worker and analyze a fresh batch. Keep
+the existing batch to retain its review edits.
 
 ## Reviewing a batch
 
@@ -73,10 +81,31 @@ weights on first use.
 3. Start analysis. The worker processes the saved batch as a whole, matching
    athletes and propagating bibs through face matches before resolving disciplines.
    Progress and failed photos appear in the review screen.
+   **Cancel analysis** stops the job from saving further results and keeps saved
+   review work. An active model call may finish before the worker stops processing.
 4. Review the existing description, suggested caption, and evidence. Captions,
    bibs, names, clubs, and disciplines are editable. **No event** explicitly omits
    a discipline. A detected face can be named individually, from the roster or
    with a name absent from it.
+   If a person was not detected, use **Add person from roster**, search by name,
+   bib, or club, and choose **Add to this photo**. This also works before analysis.
+   The roster assignment generates a caption suggestion without creating a bib
+   read or face detection. **Remove added person** reverses an accidental addition.
+   After saving a name, select that subject and choose **Find matching faces…**.
+   Check the candidate photos, exclude wrong matches, and confirm the selection.
+   Manual identities and bib corrections are protected. Edited captions and manual
+   disciplines are kept; changed photos require approval again.
+   Matches that already have the selected name are labeled **Already named**.
+   A tentative roster guess can be replaced after confirming the warning. A
+   different confirmed name requires individual review. **Review this photo**
+   opens a match that cannot be changed through propagation.
+   Strong machine bib reads absent from the saved roster appear as warnings.
+   Confirm the selected faces and those reads before assigning names; the reads
+   remain in the evidence and the photos still need review. Conflicting roster
+   bibs and manual corrections cannot be overridden by this confirmation.
+   **Undo last name assignment** restores the last propagation during the active
+   session. It refuses to overwrite later edits and never restores approval.
+   Its undo data expires with the face session; it does not restore gallery changes.
 5. **Approve this photo** and the evidence checkbox affect the open photo.
    **Approve all eligible** lists the affected captions for confirmation, including
    photos hidden by the filter. Blank captions and unresolved cases are excluded.
@@ -88,6 +117,13 @@ weights on first use.
    reported as conflicts. Publication history records individual outcomes and
    supports conditional restore.
 
+For interrupted or failed publishing, **Check gallery outcome** reads the live
+description without writing. If a gallery description changed, **Load live
+description for review** updates the comparison value and removes approval and
+replacement consent. Review it, explicitly choose replacement, and approve again
+before applying. Filters include failed analysis, publishing issues, and published
+photos; publishing filters use the latest operation for each photo.
+
 Previous/next controls follow the current filter and stop at either end. Leaving
 unsaved edits requires confirmation. Uploaded photos can be reviewed without a
 gallery destination; they cannot be published to an existing image automatically.
@@ -95,6 +131,7 @@ gallery destination; they cannot be published to an existing image automatically
 Caption saves keep face selection available during the active session.
 **Save review and finish face session** saves the review and removes the extracted
 face data. Saved albums can be reopened later with photos, names, and captions.
+Signing out also cancels active analysis and clears temporary face data.
 
 ## Data and process boundaries
 
@@ -106,10 +143,17 @@ face data. Saved albums can be reopened later with photos, names, and captions.
 - One worker processes album jobs on the app host. Leases and fencing tokens
   prevent stale workers from saving results. The API process does not load ML
   runtimes. Run migrations before starting an updated installation.
-- Face embeddings are released after analysis. Face geometry stays in worker RAM
-  for review and expires after one hour by default. Finishing review, deleting a
-  batch, logging out, or stopping the worker also removes it. Neither geometry
-  nor embeddings are saved to the database or photo storage.
+- With a roster, only exact roster bibs and manual corrections constrain face
+  groups or donate bibs to other photos. Unsupported machine reads remain review
+  evidence. The face-similarity threshold is unchanged.
+- Face embeddings are released after analysis. Face boxes, match groups, and undo
+  records stay in worker memory during review and expire after one hour by
+  default. Finishing review, cancelling analysis, deleting a batch, signing out,
+  or stopping the worker clears them. They are never saved to the database or
+  photo storage. Saved names and assignment notes survive the face session.
+- A confident propagated bib can replace a tentative roster guess during
+  analysis. Manual identities and confirmed matches are preserved. Name-only OCR
+  matches remain suggestions; printed text can resemble a roster surname.
 - Reruns preserve manual captions and identity/discipline decisions. Photos that
   retain manual subject records receive no fresh face selectors, because new
   detections cannot safely be mapped to the old subject indexes.
@@ -125,7 +169,7 @@ face data. Saved albums can be reopened later with photos, names, and captions.
 
 Chevereto imports support local datefolder, direct, and path image storage.
 External and legacy storage modes produce import errors. Additional galleries,
-exports, roster formats, name propagation, and cross-album person erasure are
+exports, roster formats, and cross-album person erasure are
 outside the current implementation.
 
 ## Development checks
@@ -150,6 +194,8 @@ contracts. Frontend builds generate the client and type-check before bundling.
 
 Browser tests build the frontend and start a disposable SQLite fixture app.
 Set `CHROMIUM_PATH` if Chromium is not at `/usr/bin/chromium`.
+Run Python and browser checks in sequence: the frontend build replaces `dist/`,
+which the API test fixtures may read when they start.
 
 SQL integration tests are opt-in. PostgreSQL tests create and drop a random
 schema. The MariaDB DSN must name a dedicated `startnummer_test_*` database:
@@ -166,3 +212,8 @@ Database updates were visible without cache invalidation. Repeat this check
 when changing the adapter or supported version; SQL success alone does not
 confirm what the gallery displays. This integration check does not measure
 inference accuracy.
+
+The full-album photographer acceptance checklist and remaining backlog decisions
+are in [docs/acceptance.md](docs/acceptance.md). Automated recovery tests include a
+synthetic 93-photo batch with a 262-entry roster; this does not verify real model
+accuracy on the representative photos.

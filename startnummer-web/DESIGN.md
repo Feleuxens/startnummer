@@ -13,6 +13,12 @@ affect the open photo. **Approve all eligible** requires confirmation and lists
 the affected photos, including those hidden by a filter. Applying descriptions
 is a separate preview and confirmation step.
 
+Face-name propagation has its own preview with highlighted matching faces, per-photo
+selection, and the resulting captions. Keep the confirmation controls visible while
+the list scrolls. Expiry or session closure removes this preview and its geometry.
+Show already-named matches as a status. Only eligible matches have checkboxes;
+tentative name replacements require confirmation. Protected matches link to review.
+
 Saving a caption keeps face selection available during review. Finishing review
 discards the face session. Reopened albums retain saved captions and names.
 

@@ -11,10 +11,10 @@ labels: ["bug"]
 
 ## Reproduction
 
-> **Never attach competition photos** if you're not sure about legal implications. Reference a
-> photo by its `content_hash`, or attach a redacted crop / synthetic sample that
-> still triggers the bug. If a bug can only be shown with a real photo, say so and
-> keep the photo local - describe it instead.
+> Use a synthetic sample or redacted crop when possible. If the issue requires
+> a real competition photo that you cannot share, keep it local and describe it.
+> Include the batch and photo IDs. A content hash identifies shared image bytes,
+> not an individual gallery entry.
 
 <!-- Minimal steps to reproduce. -->
 
@@ -32,9 +32,9 @@ labels: ["bug"]
 - device: `cuda` / `mps` / `cpu`
 - pipeline step
 
-## Technical Notes
+## Technical notes
 
 <!--
-Optional. Suspected cause, the module you think is at fault, a failing
-assertion, a confidence value that looks wrong.
+Optional: suspected cause, relevant module, failing assertion, or unexpected
+confidence value.
 -->
