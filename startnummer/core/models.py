@@ -1,4 +1,4 @@
-"""Cross-sport primitives. Depends only on core.enums."""
+"""Shared athlete, subject, event, and confidence models."""
 
 from enum import StrEnum
 from typing import NamedTuple, TypeVar
@@ -24,20 +24,20 @@ class BaseDiscipline(StrEnum):
 
 
 class Athlete(BaseModel):
-    # EntryTable data. The match to an athlete is confidence-wrapped (Subject.athlete);
+    """Roster data; match confidence belongs to Subject.athlete."""
+
     name: str
     bib: str | None = None
     club: str | None = None
     year_birth: int | None = None
-    entered_events: list[BaseDiscipline] = Field(
-        default_factory=list
-    )  # raw entry labels, e.g. "100m"
-    athlete_id: UUID | None = None  # stable key for the face gallery
+    # Canonical slugs such as "100m" or "long_jump", interpreted by each sport.
+    entered_events: list[str] = Field(default_factory=list)
+    athlete_id: UUID | None = None  # optional roster identity
 
 
 class Subject(BaseModel):
-    # One person in a photo; a photo may contain several.
-    # Candidate bibs, highest confidence first; >1 element = unresolved ambiguity.
+    """One detected person and their OCR, propagated bibs, and roster match."""
+
     bibs: list[Confident[str]] = Field(default_factory=list)
     athlete: Confident[Athlete] | None = None
 
@@ -55,4 +55,4 @@ class TagNamespace(StrEnum):
 
 class Tag(NamedTuple):
     namespace: TagNamespace
-    value: str  # human-readable; the exporter emits this and drops the namespace
+    value: str  # human-readable label

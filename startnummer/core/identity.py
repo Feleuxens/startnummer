@@ -1,11 +1,7 @@
-"""Face-identity clustering. Pure: embeddings in, clusters of keys out.
+"""Cluster subjects by face similarity for within-album bib propagation.
 
-Groups subjects (across an album's photos) whose face embeddings are mutually
-similar, so a confident bib on one photo can be propagated to face-matched
-subjects on others.
-
-Pure-python cosine over Sequence[float] keeps core free of numpy; fine at
-album scale (hundreds of faces), revisit if albums grow to thousands.
+Uses cosine similarity and greedy single-link merging, subject to cannot-link
+constraints. Embeddings use plain Python sequences to keep NumPy out of core.
 """
 
 import math
@@ -49,11 +45,7 @@ def cluster_faces(
     a face is similar to two mutually-exclusive identities it joins the closer.
     """
     index = {item.key: i for i, item in enumerate(items)}
-    forbidden = {
-        frozenset((index[a], index[b]))
-        for a, b in cannot_link
-        if a in index and b in index and a != b
-    }
+    forbidden = {frozenset((index[a], index[b])) for a, b in cannot_link if a in index and b in index and a != b}
 
     parent = list(range(len(items)))
     members: dict[int, set[int]] = {i: {i} for i in range(len(items))}
@@ -76,9 +68,7 @@ def cluster_faces(
         ri, rj = find(i), find(j)
         if ri == rj:
             continue
-        if any(
-            frozenset((a, b)) in forbidden for a in members[ri] for b in members[rj]
-        ):
+        if any(frozenset((a, b)) in forbidden for a in members[ri] for b in members[rj]):
             continue
         parent[rj] = ri
         members[ri] |= members.pop(rj)

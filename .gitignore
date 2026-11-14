@@ -225,4 +225,15 @@ __marimo__/
 # model and test files
 *.pt
 test-pictures/
+dev-containers/
+.startnummer/
+.taste-skill/
+startnummer-web/node_modules/
+startnummer-web/dist/
+startnummer-web/.astro/
+startnummer-web/test-results/
+startnummer-web/playwright-report/
 
+# AI stuff
+AGENTS.md
+.junie/

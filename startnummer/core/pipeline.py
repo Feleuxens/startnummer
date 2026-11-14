@@ -1,16 +1,11 @@
-"""Album analysis pipeline.
+"""Analyze each photo, link faces within the album, and generate captions.
 
-Sequences the per-photo stages (detect -> OCR -> faces -> group -> cues/infer ->
-resolve) and the cross-photo pass (face-identity linking, bib propagation).
-Takes protocol instances so it runs identically with adapters or test fakes;
-the only I/O here is hashing the image bytes.
-
-Face embeddings stay transient: they exist inside this function and are never
-written to the records (gallery persistence is a separate, opt-in port).
+Detector, OCR, and face engines are injected. Face embeddings are used for
+cross-photo bib propagation and are excluded from AnalysisRecord.
 """
 
 import hashlib
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -26,11 +21,12 @@ from startnummer.core.interfaces import CueDetector, Detector, EntryList, FaceEn
 from startnummer.core.models import Confident, Subject
 from startnummer.core.record import Album, AnalysisRecord
 from startnummer.core.sports import get
+from startnummer.core.types import FaceDetection
 
 # Placeholders until tuned against real albums.
 STRONG_BIB_CONFIDENCE = 0.8  # a bib this confident may be propagated to face matches
 PROPAGATION_DISCOUNT = 0.9  # propagated confidence = source confidence * discount
-ATHLETE_AUTO = 0.8  # matched-athlete confidence needed for AUTO (exact / name-confirmed rungs)
+ATHLETE_AUTO = 0.8  # minimum athlete confidence for automatic resolution
 
 FaceKey = tuple[int, int]  # (photo index, subject index)
 
@@ -63,9 +59,7 @@ def strong_bib(
     tiebroken by confidence, then box area; the winner is usable for donation
     and constraints, but contested=True and the photo must go to review.
     """
-    eligible = [
-        (i, bib) for i, bib in enumerate(bibs) if bib.confidence >= min_confidence
-    ]
+    eligible = [(i, bib) for i, bib in enumerate(bibs) if bib.confidence >= min_confidence]
     if not eligible:
         return None
     values = {bib.value for _, bib in eligible}
@@ -82,29 +76,22 @@ def strong_bib(
     return StrongBib(winner, True)
 
 
-def _subject_needs_review(
-    subject: Subject, grouped: GroupedSubject, min_bib_confidence: float, matched: bool
-) -> bool:
-    """Review is warranted only when there is bib EVIDENCE that failed to resolve.
+def _subject_needs_review(subject: Subject, grouped: GroupedSubject, min_bib_confidence: float, matched: bool) -> bool:
+    """Flag conflicting bibs, weak athlete matches, or unresolved roster evidence.
 
-    - Matched to an athlete confidently -> resolved, no review.
-    - No usable bib evidence at all (bibless person, or only sub-threshold reads)
-      and no match -> nothing to review; a human could add nothing.
-    - Leftover unresolved evidence -> review: an ambiguous/contested strong read,
-      or (with a table) a confident read that matched no athlete, which is
-      usually a misread of a real number and shouldn't be dropped silently.
+    A confident roster match resolves uncontested reads. With no match, ambiguous
+    reads need review, as do strong bibs missing from the supplied roster.
     """
+    pick = strong_bib(subject.bibs, grouped.bib_boxes, min_bib_confidence)
+    if pick is not None and pick.contested:
+        return True
     if subject.athlete is not None and subject.athlete.confidence >= ATHLETE_AUTO:
         return False
     if subject.athlete is not None:
-        return True  # matched only weakly (partial/name-only rung): review the guess
-    pick = strong_bib(subject.bibs, grouped.bib_boxes, min_bib_confidence)
+        return True  # review partial or name-only suggestions
     if pick is None:
-        # No strong read. An ambiguous SPLIT leaves diluted same-value candidates
-        # that individually fall below the gate but are still evidence worth review.
+        # Split ownership can leave ambiguous reads below the confidence threshold.
         return _has_ambiguous_bib(subject)
-    if pick.contested:
-        return True  # tiebroken between distinct confident values
     # A confident, uncontested read that nonetheless didn't match the table.
     return matched and subject.athlete is None
 
@@ -117,7 +104,7 @@ def _status(photo: "_PhotoAnalysis", min_bib_confidence: float, matched: bool) -
     record = photo.record
     if not record.subjects:
         return Status.NEEDS_REVIEW
-    for subject, grouped in zip(record.subjects, photo.grouped):
+    for subject, grouped in zip(record.subjects, photo.grouped, strict=True):
         if _subject_needs_review(subject, grouped, min_bib_confidence, matched):
             return Status.NEEDS_REVIEW
     return Status.AUTO
@@ -136,15 +123,11 @@ def face_cannot_links(
         links.extend(combinations(keys, 2))
 
     with_bib = [(item.key, strong_bibs[item.key]) for item in items if item.key in strong_bibs]
-    links.extend(
-        (ka, kb) for (ka, va), (kb, vb) in combinations(with_bib, 2) if va != vb
-    )
+    links.extend((ka, kb) for (ka, va), (kb, vb) in combinations(with_bib, 2) if va != vb)
     return links
 
 
-def _propagate_bibs(
-    photos: list[_PhotoAnalysis], *, min_similarity: float, min_bib_confidence: float
-) -> None:
+def _propagate_bibs(photos: list[_PhotoAnalysis], *, min_similarity: float, min_bib_confidence: float) -> None:
     """Within-album: give face-matched subjects without a strong bib the bib of
     their cluster. Constraints ensure a cluster never holds two different strong
     bibs; the exactly-one check below remains as a defensive backstop."""
@@ -154,6 +137,7 @@ def _propagate_bibs(
         for si, grouped in enumerate(photo.grouped)
         if grouped.faces
     ]
+
     def _pick(key: FaceKey) -> StrongBib | None:
         photo = photos[key[0]]
         return strong_bib(
@@ -162,11 +146,7 @@ def _propagate_bibs(
             min_bib_confidence,
         )
 
-    strong_bibs = {
-        key: pick.bib.value
-        for key in (item.key for item in items)
-        if (pick := _pick(key)) is not None
-    }
+    strong_bibs = {key: pick.bib.value for key in (item.key for item in items) if (pick := _pick(key)) is not None}
 
     clusters = cluster_faces(
         items,
@@ -204,6 +184,8 @@ def analyze_album(
     entry_list: EntryList | None = None,
     min_face_similarity: float = DEFAULT_MIN_SIMILARITY,
     min_bib_confidence: float = STRONG_BIB_CONFIDENCE,
+    on_progress: Callable[[int, int, str], None] | None = None,
+    on_faces: Callable[[int, int, Sequence[FaceDetection]], None] | None = None,
 ) -> list[AnalysisRecord]:
     module = get(album.sport)
     photos: list[_PhotoAnalysis] = []
@@ -214,60 +196,74 @@ def analyze_album(
     time_total_grouping = 0
 
     start_time = perf_counter()
-    for path in image_paths:
-        intermediate_start = perf_counter()
-        persons = detector.detect(path)
-        time_total_person += perf_counter() - intermediate_start
-
-        intermediate_start = perf_counter()
-        ocr_result = ocr.read(path)
-        time_total_ocr += perf_counter() - intermediate_start
-
-        intermediate_start = perf_counter()
-        face_detections = faces.detect(path) if faces is not None else []
-        time_total_face += perf_counter() - intermediate_start
-
-        intermediate_start = perf_counter()
-        grouped = group_subjects(persons, ocr_result.bibs, face_detections, ocr_result.texts)
-        time_total_grouping += perf_counter() - intermediate_start
-
-        event = module.new_event()
-        if cues is not None:
-            event = module.infer(event, cues.detect(path))
-
-        subjects = [Subject(bibs=list(g.bibs)) for g in grouped]
-
+    for index, path in enumerate(image_paths):
         record = AnalysisRecord(
             owner_id=album.owner_id,
             album_id=album.id,
             content_hash=_sha256(path),
             source_path=path,
-            event=event,
-            subjects=subjects,
+            meet_name=(album.meet_name or "").strip()
+            or ((entry_list.competition or "").strip() if entry_list is not None else None)
+            or None,
+            event=module.new_event(),
         )
+        grouped = []
+        try:
+            if on_progress:
+                on_progress(index, len(image_paths), "detecting")
+            intermediate_start = perf_counter()
+            persons = detector.detect(path)
+            time_total_person += perf_counter() - intermediate_start
+
+            intermediate_start = perf_counter()
+            ocr_result = ocr.read(path)
+            time_total_ocr += perf_counter() - intermediate_start
+
+            intermediate_start = perf_counter()
+            face_detections = faces.detect(path) if faces is not None else []
+            time_total_face += perf_counter() - intermediate_start
+
+            intermediate_start = perf_counter()
+            grouped = group_subjects(persons, ocr_result.bibs, face_detections, ocr_result.texts)
+            time_total_grouping += perf_counter() - intermediate_start
+            if cues is not None:
+                record.event = module.infer(record.event, cues.detect(path))
+            record.subjects = [Subject(bibs=list(g.bibs)) for g in grouped]
+        except Exception as exc:
+            # A model failure is a photo outcome, not the end of the batch.
+            # Do not persist exception text, which may include paths or secrets.
+            record.status = Status.FAILED
+            record.failure_reason = f"Photo analysis failed ({type(exc).__name__})"
+            grouped = []
+            record.subjects = []
         photos.append(_PhotoAnalysis(record=record, grouped=grouped))
+        if on_progress:
+            on_progress(index + 1, len(image_paths), "analyzing")
 
     if entry_list is not None:
         for photo in photos:
             _match_and_filter(photo, entry_list, min_bib_confidence)
 
     if faces is not None:
-        _propagate_bibs(
-            photos, min_similarity=min_face_similarity, min_bib_confidence=min_bib_confidence
-        )
+        if on_progress:
+            on_progress(len(image_paths), len(image_paths), "linking faces")
+        _propagate_bibs(photos, min_similarity=min_face_similarity, min_bib_confidence=min_bib_confidence)
 
     if entry_list is not None:
-        # Second pass: subjects that just RECEIVED a bib via face propagation can
-        # now match (match_photo skips already-matched subjects).
+        # Match propagated bibs to the roster, keeping existing athlete matches.
         for photo in photos:
             _match_photo(photo, entry_list, min_bib_confidence)
 
-    for photo in photos:
-        photo.record.event = get(photo.record.sport).resolve(
-            photo.record.event, photo.record.subjects
-        )
+    for index, photo in enumerate(photos):
+        if photo.record.status is Status.FAILED:
+            continue
+        photo.record.event = get(photo.record.sport).resolve(photo.record.event, photo.record.subjects)
         photo.record.status = _status(photo, min_bib_confidence, entry_list is not None)
         photo.record.description = build_description(photo.record)
+        if on_faces:
+            for subject_index, grouped in enumerate(photo.grouped):
+                if grouped.faces:
+                    on_faces(index, subject_index, grouped.faces)
 
     print(f"Finished pipeline in {perf_counter() - start_time}")
     print(f"Person detection (accumulated): {time_total_person}")
@@ -283,19 +279,15 @@ def _hints(photo: _PhotoAnalysis) -> list[list[str]]:
 
 
 def _match_photo(photo: _PhotoAnalysis, entries: EntryList, min_bib_confidence: float) -> None:
-    match_photo(
-        photo.record.subjects, _hints(photo), entries, min_bib_confidence=min_bib_confidence
-    )
+    match_photo(photo.record.subjects, _hints(photo), entries, min_bib_confidence=min_bib_confidence)
 
 
-def _match_and_filter(
-    photo: _PhotoAnalysis, entries: EntryList, min_bib_confidence: float
-) -> None:
-    """Match, then delete pure-noise orphans"""
+def _match_and_filter(photo: _PhotoAnalysis, entries: EntryList, min_bib_confidence: float) -> None:
+    """Match the roster and remove unsupported, unowned reads."""
     _match_photo(photo, entries, min_bib_confidence)
     keep = [
         (subject, grouped)
-        for subject, grouped in zip(photo.record.subjects, photo.grouped)
+        for subject, grouped in zip(photo.record.subjects, photo.grouped, strict=True)
         if not (
             grouped.person_box is None
             and subject.athlete is None

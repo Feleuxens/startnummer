@@ -28,9 +28,7 @@ def _club_tags(record: AnalysisRecord, min_confidence: float) -> list[Tag]:
     return tags
 
 
-def derive_tags(
-    record: AnalysisRecord, *, min_confidence: float = DEFAULT_MIN_CONFIDENCE
-) -> list[Tag]:
+def derive_tags(record: AnalysisRecord, *, min_confidence: float = DEFAULT_MIN_CONFIDENCE) -> list[Tag]:
     tags = _club_tags(record, min_confidence)
     discipline = get(record.sport).discipline_tag(record.event)
     if discipline is not None:

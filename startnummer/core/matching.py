@@ -1,9 +1,6 @@
-"""Min-cost bipartite assignment (Hungarian algorithm).
+"""Minimum-cost bipartite assignment using the Hungarian algorithm.
 
-Used to assign faces to persons jointly: per-item greedy ownership cannot enforce
-"at most one face per person" and picks locally-best pairs that strand the rest,
-whereas the global minimum-cost matching resolves exactly the swap cases dense
-scenes produce.
+Assigns faces to people jointly so each person receives at most one face.
 """
 
 import math
@@ -83,10 +80,6 @@ def min_cost_assignment(costs: Sequence[Sequence[float]]) -> list[int | None]:
     assignment: list[int | None] = [None] * n_rows
     for col in range(1, size + 1):
         row = match_col[col]
-        if (
-            1 <= row <= n_rows
-            and col <= n_cols
-            and not math.isinf(costs[row - 1][col - 1])
-        ):
+        if 1 <= row <= n_rows and col <= n_cols and not math.isinf(costs[row - 1][col - 1]):
             assignment[row - 1] = col - 1
     return assignment

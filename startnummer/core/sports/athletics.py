@@ -129,16 +129,14 @@ class AthleticsEvent(SportEvent):
         # The family, whether from a recognized discipline or a custom override.
         if self.discipline is None:
             return None
-        return self.custom_kind if self.discipline.value is AthleticsDiscipline.OTHER \
-            else self.discipline.value.kind
+        return self.custom_kind if self.discipline.value is AthleticsDiscipline.OTHER else self.discipline.value.kind
 
 
 _BY_SLUG = {d.value: d for d in AthleticsDiscipline}
 
 
 def _classify(entry: str) -> AthleticsDiscipline | None:
-    # Clean canonical entry -> the concrete discipline member, or None if the
-    # entry isn't one we tag (unknown slug). Adapter guarantees canonical form.
+    # Ignore roster event slugs not represented in the discipline enum.
     return _BY_SLUG.get(entry)
 
 
@@ -166,8 +164,10 @@ def _resolve_discipline(
     return next(iter(common)) if len(common) == 1 else None
 
 
-def _confident(value, source: Source, note: str, confidence: float = ENTRY_CONFIDENCE):
-    return Confident(value=value, confidence=confidence, source=source, note=note)
+def _confident(
+    value: AthleticsDiscipline, source: Source, note: str, confidence: float = ENTRY_CONFIDENCE
+) -> Confident[AthleticsDiscipline]:
+    return Confident[AthleticsDiscipline](value=value, confidence=confidence, source=source, note=note)
 
 
 class AthleticsModule(SportBase):
@@ -181,18 +181,17 @@ class AthleticsModule(SportBase):
         if event.discipline is not None and event.discipline.value is not AthleticsDiscipline.OTHER:
             return event
 
-        # STEP 1 - entries first (only when nothing is set). Unique concrete event
-        # across matched athletes' entries wins
+        # Prefer the single discipline shared by the matched roster entries.
         if event.discipline is None:
             discipline = _resolve_discipline(subjects)
             if discipline is not None:
-                return event.model_copy(update={
-                    "discipline": _confident(discipline, Source.ROSTER, "resolved from competition entries"),
-                })
+                return event.model_copy(
+                    update={
+                        "discipline": _confident(discipline, Source.ROSTER, "resolved from competition entries"),
+                    }
+                )
 
-            # Step 2: Try to infer kind of discipline like running
             event = self._classify_visual(event)
-            # Step 3: Try to infer from cues like baton or hurdles
             event = self._infer_from_cues(event)
 
         # If a visual step supplied only a family (via custom_kind on OTHER, or a
@@ -202,13 +201,15 @@ class AthleticsModule(SportBase):
             if family is not None:
                 narrowed = _resolve_discipline(subjects, kind=family)
                 if narrowed is not None:
-                    return event.model_copy(update={
-                        "discipline": _confident(
-                            narrowed, Source.ROSTER, "resolved from entries within visual family"
-                        ),
-                        "custom_kind": None,
-                        "custom_label": None,
-                    })
+                    return event.model_copy(
+                        update={
+                            "discipline": _confident(
+                                narrowed, Source.ROSTER, "resolved from entries within visual family"
+                            ),
+                            "custom_kind": None,
+                            "custom_label": None,
+                        }
+                    )
         return event
 
     def _classify_visual(self, event: AthleticsEvent) -> AthleticsEvent:
@@ -225,12 +226,12 @@ class AthleticsModule(SportBase):
         cue_family = {"baton": AthleticsKind.RELAY, "hurdle": AthleticsKind.HURDLES}
         for cue, family in cue_family.items():
             if cue in cues:
-                return event.model_copy(update={
-                    "discipline": _confident(
-                        AthleticsDiscipline.OTHER, Source.RULE, f"{cue} visible", 0.7
-                    ),
-                    "custom_kind": family,
-                })
+                return event.model_copy(
+                    update={
+                        "discipline": _confident(AthleticsDiscipline.OTHER, Source.RULE, f"{cue} visible", 0.7),
+                        "custom_kind": family,
+                    }
+                )
         return event
 
     def discipline_label(self, discipline: AthleticsDiscipline, lang: Lang) -> str | None:
@@ -260,6 +261,8 @@ class AthleticsModule(SportBase):
             return f"bei {event.custom_label}"
 
         label = discipline.label(lang)
+        if label is None:
+            return None
         preposition = discipline.preposition(lang)
 
         return f"{preposition} {label}"

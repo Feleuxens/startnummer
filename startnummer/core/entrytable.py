@@ -1,7 +1,7 @@
 """Entry-table matcher: ties OCR evidence (bibs + name hints) to athletes.
 
-Pure; stdlib fuzzy matching (difflib) keeps core dependency-free. The match
-ladder, first hit wins, confidence encodes the rung:
+Matches use difflib for name similarity. The first matching rule sets the
+athlete and confidence:
 
   exact    bib value is in the table ................................ 0.95
            ... and a name hint confirms the athlete ................. 0.98
@@ -24,7 +24,7 @@ PARTIAL_NAME_PICKED = 0.85
 NAME_ONLY = 0.50
 
 NAME_SIMILARITY = 0.78  # difflib ratio; OCR reads printed surnames nearly verbatim
-_MIN_PARTIAL_LENGTH = 2  # single digits are substrings of everything; never recover from them
+_MIN_PARTIAL_LENGTH = 2  # single-digit partial reads produce too many candidates
 
 
 def _name_score(hint: str, athlete: Athlete) -> float:
@@ -38,9 +38,7 @@ def _name_score(hint: str, athlete: Athlete) -> float:
     )
 
 
-def _best_name_match(
-    hints: Sequence[str], athletes: Sequence[Athlete]
-) -> tuple[Athlete, str] | None:
+def _best_name_match(hints: Sequence[str], athletes: Sequence[Athlete]) -> tuple[Athlete, str] | None:
     """The single athlete some hint clears the threshold for; None on miss or tie."""
     scored: dict[int, tuple[float, str]] = {}
     for index, athlete in enumerate(athletes):
@@ -64,9 +62,7 @@ def table_supports(value: str, entries: EntryList) -> bool:
 
 
 def _attach(subject: Subject, athlete: Athlete, confidence: float, note: str) -> None:
-    subject.athlete = Confident(
-        value=athlete, confidence=confidence, source=Source.ROSTER, note=note
-    )
+    subject.athlete = Confident(value=athlete, confidence=confidence, source=Source.ROSTER, note=note)
 
 
 def _recover_bib(subject: Subject, athlete: Athlete, confidence: float, partial: str) -> None:
@@ -87,7 +83,7 @@ def match_subject(
     *,
     min_bib_confidence: float = 0.8,
 ) -> None:
-    """Attaches subject.athlete per the match ladder; no-op if already matched."""
+    """Attach the first roster match, preserving an existing match."""
     if subject.athlete is not None:
         return
     by_bib = {a.bib: a for a in entries.athletes if a.bib}
@@ -101,8 +97,9 @@ def match_subject(
             continue
         name = _best_name_match(hints, [athlete])
         if name is not None:
-            _attach(subject, athlete, EXACT_NAME_CONFIRMED,
-                    f"bib {bib.value} in entry table; name confirmed by '{name[1]}'")
+            _attach(
+                subject, athlete, EXACT_NAME_CONFIRMED, f"bib {bib.value} in entry table; name confirmed by '{name[1]}'"
+            )
         else:
             _attach(subject, athlete, EXACT, f"bib {bib.value} in entry table")
         return
@@ -116,15 +113,20 @@ def match_subject(
         if not candidates:
             continue
         if len(candidates) == 1:
-            _attach(subject, candidates[0], PARTIAL_UNIQUE,
-                    f"partial read '{value}' matches only bib {candidates[0].bib}")
+            _attach(
+                subject, candidates[0], PARTIAL_UNIQUE, f"partial read '{value}' matches only bib {candidates[0].bib}"
+            )
             _recover_bib(subject, candidates[0], PARTIAL_UNIQUE, value)
             return
         picked = _best_name_match(hints, candidates)
         if picked is not None:
             athlete, hint = picked
-            _attach(subject, athlete, PARTIAL_NAME_PICKED,
-                    f"partial read '{value}' + name hint '{hint}' -> bib {athlete.bib}")
+            _attach(
+                subject,
+                athlete,
+                PARTIAL_NAME_PICKED,
+                f"partial read '{value}' + name hint '{hint}' -> bib {athlete.bib}",
+            )
             _recover_bib(subject, athlete, PARTIAL_NAME_PICKED, value)
             return
 
@@ -142,5 +144,5 @@ def match_photo(
     *,
     min_bib_confidence: float = 0.8,
 ) -> None:
-    for subject, hints in zip(subjects, hints_per_subject):
+    for subject, hints in zip(subjects, hints_per_subject, strict=True):
         match_subject(subject, hints, entries, min_bib_confidence=min_bib_confidence)

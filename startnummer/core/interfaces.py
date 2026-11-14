@@ -1,9 +1,4 @@
-"""Pipeline-stage interfaces and the EntryList contract.
-
-Implementations (pdfplumber, CSV, YOLO, PaddleOCR, InsightFace, Qwen-VL) live in
-startnummer.adapters and depend on this module, never the reverse. Each EntryTable
-input format is a separate EntryTable implementation.
-"""
+"""Inference protocols and the normalized competition roster."""
 
 from typing import Protocol, runtime_checkable
 
@@ -25,7 +20,7 @@ class EntryList(BaseModel):
 
 @runtime_checkable
 class EntryListParser(Protocol):
-    # source is a path/id; format-specific (PDF, CSV, XLSX) parsers each implement this.
+    # The adapter defines accepted source strings (for example a path or HTML).
     def parse(self, source: str) -> EntryList: ...
 
 

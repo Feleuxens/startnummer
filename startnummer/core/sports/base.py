@@ -1,12 +1,6 @@
-"""Per-sport contract, no-op base, and registry.
-
-SportModule is the structural contract. SportBase provides no-op defaults so a
-sport only writes the methods it actually has rules for; the no-op resolve/tag/
-label are inherited. Generic code dispatches through get(sport).
-"""
+"""Sport-specific inference hooks and module registry."""
 
 from collections.abc import Sequence
-from enum import StrEnum
 from typing import Any, ClassVar, Protocol, TypeVar
 
 from startnummer.core.enums import Lang, Sport
@@ -29,9 +23,7 @@ class SportModule(Protocol[E]):
     # Returns the event with code-defined fields resolved (e.g. distance from entries).
     def resolve(self, event: E, subjects: list[Subject]) -> E: ...
 
-    # Refines the event from visual cues (e.g. runner + baton -> relay). cues is
-    # provisionally object labels; tightens to a structured type once the object
-    # detector lands. No-op until per-sport rules are added.
+    # Refine the event using detected object labels, such as "baton" or "hurdle".
     def infer(self, event: E, cues: Sequence[str]) -> E: ...
 
     # Localized event phrase for prose, ready to append after the athlete list:
@@ -40,9 +32,10 @@ class SportModule(Protocol[E]):
 
 
 class SportBase:
-    """No-op defaults. Subclasses set `sport` and override only what has rules.
-    new_event has no sensible default and must be overridden; the registry
-    completeness test catches a missing override."""
+    """Default hooks leave events unchanged and return no labels or tags.
+
+    Subclasses set sport and implement new_event().
+    """
 
     sport: ClassVar[Sport]
 

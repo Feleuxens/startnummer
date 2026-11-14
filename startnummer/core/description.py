@@ -1,4 +1,4 @@
-"""Bilingual DE+EN descriptions from a resolved record. German first, then English."""
+"""Captions with German/English discipline phrases and optional meet context."""
 
 from startnummer.core.enums import Lang, Source
 from startnummer.core.models import Athlete, Subject
@@ -8,9 +8,7 @@ from startnummer.core.sports import get
 DEFAULT_MIN_CONFIDENCE = 0.8
 
 
-def _named_athletes(
-    subjects: list[Subject], min_confidence: float
-) -> list[Athlete]:
+def _named_athletes(subjects: list[Subject], min_confidence: float) -> list[Athlete]:
     athletes: list[Athlete] = []
     seen: set[tuple[str, str | None]] = set()
     for subject in subjects:
@@ -29,32 +27,21 @@ def _named_athletes(
 
 
 def _person(athlete: Athlete) -> str:
-    if athlete.bib and athlete.club:
-        detail = f"({athlete.bib}, {athlete.club})"
-    elif athlete.bib and athlete.club is None:
-        detail = f"({athlete.bib})"
-    elif athlete.club and athlete.bib is None:
-        detail = f"({athlete.club})"
-    else:
-        detail = ""
-
-    return f"{athlete.name} {detail}"
+    details = ", ".join(value for value in (athlete.bib, athlete.club) if value)
+    return f"{athlete.name} ({details})" if details else athlete.name.strip()
 
 
 def _join(parts: list[str], conjunction: str) -> str:
-    # "a", "a und b", "a, b und c"
     if len(parts) == 1:
         return parts[0]
     return f"{', '.join(parts[:-1])} {conjunction} {parts[-1]}"
 
 
-def build_description(
-    record: AnalysisRecord, *, min_confidence: float = DEFAULT_MIN_CONFIDENCE
-) -> str | None:
-    """DE paragraph then EN, or None when no athlete is confidently named.
+def build_description(record: AnalysisRecord, *, min_confidence: float = DEFAULT_MIN_CONFIDENCE) -> str | None:
+    """Build a caption from athlete names, DE/EN discipline phrases, and meet name.
 
-    None is not a failure: the discipline still reaches Chevereto as a tag via
-    derive_tags. Prose without a name would add nothing searchable.
+    Omit unknown disciplines. Return None when no athlete meets the confidence
+    threshold; manually assigned athletes are included regardless of confidence.
     """
     athletes = _named_athletes(record.subjects, min_confidence)
     if not athletes:
@@ -63,8 +50,7 @@ def build_description(
     module = get(record.sport)
 
     people = _join([_person(athlete) for athlete in athletes], "&")
-    phrase = module.discipline_phrase(record.event, Lang.DE)
-    phrase += "/"
-    phrase += module.discipline_phrase(record.event, Lang.EN)
-
-    return f"{people} {phrase}"
+    phrases = [phrase for lang in (Lang.DE, Lang.EN) if (phrase := module.discipline_phrase(record.event, lang))]
+    caption = f"{people} {'/'.join(phrases)}" if phrases else people
+    meet_name = (record.meet_name or "").strip()
+    return f"{caption} | {meet_name}" if meet_name else caption

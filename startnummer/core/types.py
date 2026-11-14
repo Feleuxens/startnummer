@@ -44,10 +44,11 @@ class Keypoint(NamedTuple):
 
 
 class PersonDetection(NamedTuple):
-    """Person box plus the body keypoints association needs. Keypoints are None
-    when not confidently visible; association falls back to box heuristics then.
-    Keypoint-based ownership is orientation-free by construction (an inverted
-    pole vaulter's torso quad is simply upside down)."""
+    """Person bounds and visible pose keypoints in image coordinates.
+
+    Missing or low-confidence keypoints are None; association uses box heuristics
+    when the required keypoints are unavailable.
+    """
 
     box: BoundingBox
     head: Keypoint | None = None  # nose, or eye/ear midpoint fallback (adapter's job)

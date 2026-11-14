@@ -1,11 +1,6 @@
-"""Filesystem blob storage. One copy per owner, addressed by content hash.
+"""Content-addressed file storage, scoped to each owner.
 
 Layout: <root>/<owner_id>/<algorithm>/<digest[:2]>/<digest[2:4]>/<digest><suffix>
-
-Per-owner at the top level because blobs are not shared between owners. Global
-deduplication would need refcounted deletion, and a refcount bug leaves a photo
-on disk after an erasure that reported success. It also makes erasing an owner a
-subtree drop.
 """
 
 import asyncio
@@ -21,19 +16,14 @@ from startnummer.core.ports import BlobRef
 
 ENV_ROOT = "STARTNUMMER_BLOB_ROOT"
 
-# "<algorithm>:<hex digest>", e.g. "sha256:<64 hex>". Deliberately not pinned to
-# sha256: the store has no opinion on which algorithm core uses, only on the
-# shape. Lower-case hex is the traversal defence for writes.
+# Accept algorithm-prefixed hashes with lowercase hexadecimal digests.
 _HASH_RE = re.compile(r"^(?P<algorithm>[a-z0-9]{1,16}):(?P<digest>[0-9a-f]{32,128})$")
 
 # Leading dot, lower case, no separators.
 _SUFFIX_RE = re.compile(r"^\.[a-z0-9]{1,8}$")
 
-# The traversal defence for reads. Keys come back from the database, which makes
-# them feel trusted, but they are still strings that become paths.
-_KEY_RE = re.compile(
-    r"^[a-z0-9]{1,16}/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{32,128}(\.[a-z0-9]{1,8})?$"
-)
+# Validate persisted keys before resolving them as file paths.
+_KEY_RE = re.compile(r"^[a-z0-9]{1,16}/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{32,128}(\.[a-z0-9]{1,8})?$")
 
 _CHUNK_BYTES = 1024 * 1024
 
@@ -60,11 +50,12 @@ class FilesystemBlobStore:
         return f"{algorithm}/{digest[:2]}/{digest[2:4]}/{digest}{suffix}"
 
     def _path(self, owner_id: UUID, key: str) -> Path:
+        owner_id = UUID(str(owner_id))
         if not _KEY_RE.fullmatch(key):
             raise ValueError(f"not a blob key: {key!r}")
-        path = self._root / str(owner_id) / key
-        # Defence in depth: the regex already makes this unreachable.
-        if self._root not in path.parents:
+        path = (self._root / str(owner_id) / key).resolve()
+        # Reject symlinks that resolve outside the owner's directory.
+        if not path.is_relative_to(self._root / str(owner_id)):
             raise ValueError(f"key escapes blob root: {key!r}")
         return path
 
@@ -85,11 +76,8 @@ class FilesystemBlobStore:
             return BlobRef(key=key, size=existing)
 
         await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
-        # The temp file must share a directory with its destination: os.replace
-        # is only atomic within one filesystem, and /tmp is often another.
-        fd, tmp_name = await asyncio.to_thread(
-            tempfile.mkstemp, dir=path.parent, suffix=".part"
-        )
+        # Keep the temporary file on the same filesystem for atomic replacement.
+        fd, tmp_name = await asyncio.to_thread(tempfile.mkstemp, dir=path.parent, suffix=".part")
         tmp = Path(tmp_name)
         size = 0
         try:
@@ -101,8 +89,7 @@ class FilesystemBlobStore:
                 await asyncio.to_thread(os.fsync, handle.fileno())
             finally:
                 await asyncio.to_thread(handle.close)
-            # Until here nothing is visible at the final path, so a crash leaves
-            # a .part file that exists() never reports.
+            # A crash before replacement leaves only an incomplete .part file.
             await asyncio.to_thread(os.replace, tmp, path)
         except BaseException:
             await asyncio.to_thread(tmp.unlink, True)

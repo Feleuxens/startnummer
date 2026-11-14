@@ -1,11 +1,8 @@
-"""Handball: event model and discipline enum only. All behavior is inherited
-no-ops from SportBase — no discipline tag, nothing to resolve from entries.
-"""
+"""Handball event types. Inference and caption hooks use the base defaults."""
 
-from enum import StrEnum
 from typing import Literal
 
-from startnummer.core.enums import Sport, Lang
+from startnummer.core.enums import Lang, Sport
 from startnummer.core.models import BaseDiscipline, Confident, SportEvent
 from startnummer.core.sports.base import SportBase, register
 
@@ -24,8 +21,8 @@ class HandballDiscipline(BaseDiscipline):
 
     def label(self, lang: Lang) -> str | None:
         return self.de if lang is Lang.DE else self.en
-    
-    
+
+
 class HandballEvent(SportEvent):
     sport: Literal[Sport.HANDBALL] = Sport.HANDBALL
     discipline: Confident[HandballDiscipline] | None = None

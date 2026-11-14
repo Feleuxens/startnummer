@@ -1,9 +1,4 @@
-"""Sport registry assembly. Importing a sport module registers it.
-
-Adding a sport: create the module (register() inside it), import its event model
-here, and add it to the Event union. That union line and the Sport enum are the
-only shared edits; everything else is the new file.
-"""
+"""Sport registration and the discriminated event union."""
 
 from typing import Annotated
 

@@ -1,24 +1,12 @@
-"""Geometric association of bib reads and faces to person detections.
+"""Associate bib reads and faces with detected people using pose keypoints.
 
-Pure (no I/O); testable with synthetic boxes. Output is intermediate and carries
-transient face embeddings; the orchestrator resolves identities from it and builds
-the persisted Subjects.
+Faces use head proximity and joint minimum-cost assignment, with at most one
+face per person. Bibs use the shoulder/hip torso polygon; near-ties split into
+candidates with reduced confidence. Unassigned reads and faces remain as orphans.
 
-Ownership is keypoint-first and orientation-free:
-
-- Face -> the person whose HEAD keypoint lies in/near the face box. At most one
-  face per person, enforced by joint minimum-cost matching (greedy per-face
-  ownership steals faces across box edges in dense scenes). A face that loses
-  the matching becomes an orphan, never a forced wrong match.
-- Bib -> the person whose SHOULDER-HIP torso quad contains the bib center.
-  The quad moves with the body, so long-jump extension or an inverted pole
-  vaulter need no special cases. Unique assignment when one torso is clearly
-  nearest; genuine near-ties split as diluted-confidence candidates.
-
-People without confident keypoints fall back to the box heuristics
-(head-near-top face cost, torso-anchor bib distance) with an additive penalty,
-so a keypointed owner beats a box-guessed one on ties. The fallback assumes an
-upright pose - acceptable, because it only fires when the pose is unreadable.
+Missing keypoints use upright bounding-box heuristics. Face costs receive an
+additive penalty; bib costs use a multiplier to preserve the ratio used for
+ambiguous ownership. GroupedSubject holds transient face embeddings.
 """
 
 from collections.abc import Sequence
@@ -37,10 +25,8 @@ _TORSO_INFLATE = 1.3  # quad scaled about its centroid; bibs can overhang the st
 # Box-fallback path (fires only without confident keypoints; assumes upright)
 _TORSO_ANCHOR = 0.35
 _HORIZONTAL_WEIGHT = 0.5
-_FALLBACK_PENALTY = 0.4  # faces (additive): flat disadvantage in the joint matching
-_FALLBACK_FACTOR = 1.5  # bibs (multiplicative): preserves cost RATIOS so the
-#   unique-vs-tie margin still separates two fallback candidates; an additive
-#   penalty would compress ratios and turn clear winners into false ties
+_FALLBACK_PENALTY = 0.4  # additive face cost for missing keypoints
+_FALLBACK_FACTOR = 1.5  # multiplicative bib cost preserves ambiguity ratios
 
 _UNIQUE_MARGIN = 0.8  # unique bib assignment if best cost < margin * runner-up
 
@@ -70,8 +56,7 @@ def _torso_quad(person: PersonDetection) -> list[Keypoint] | None:
     centroid_x = sum(c.x for c in corners) / 4
     centroid_y = sum(c.y for c in corners) / 4
     return [
-        Keypoint(centroid_x + (c.x - centroid_x) * _TORSO_INFLATE,
-                 centroid_y + (c.y - centroid_y) * _TORSO_INFLATE)
+        Keypoint(centroid_x + (c.x - centroid_x) * _TORSO_INFLATE, centroid_y + (c.y - centroid_y) * _TORSO_INFLATE)
         for c in corners
     ]
 
@@ -115,7 +100,7 @@ def _assign_faces(
     if not faces:
         return
     costs = [[_face_cost(person, face.box) for person in persons] for face in faces]
-    for face, assigned in zip(faces, min_cost_assignment(costs)):
+    for face, assigned in zip(faces, min_cost_assignment(costs), strict=True):
         if assigned is None:
             groups.append(GroupedSubject(person_box=None, faces=[face]))
         else:
@@ -141,10 +126,7 @@ def _bib_cost(person: PersonDetection, center: tuple[float, float]) -> float:
     height = max(person.box.y2 - person.box.y1, 1)
     anchor_x = (person.box.x1 + person.box.x2) / 2
     anchor_y = person.box.y1 + _TORSO_ANCHOR * height
-    return (
-        hypot((center[0] - anchor_x) / width, (center[1] - anchor_y) / height)
-        * _FALLBACK_FACTOR
-    )
+    return hypot((center[0] - anchor_x) / width, (center[1] - anchor_y) / height) * _FALLBACK_FACTOR
 
 
 def group_subjects(
@@ -159,16 +141,18 @@ def group_subjects(
     for bib in bibs:
         center = _center(bib.box)
         scored = sorted(
-            ((cost, i) for i, person in enumerate(persons)
-             if (cost := _bib_cost(person, center)) is not FORBIDDEN),
+            ((cost, i) for i, person in enumerate(persons) if (cost := _bib_cost(person, center)) is not FORBIDDEN),
             key=lambda pair: pair[0],
         )
         if not scored:
             groups.append(
                 GroupedSubject(
                     person_box=None,
-                    bibs=[Confident(value=bib.value, confidence=bib.confidence, source=Source.OCR,
-                                    note="no plausible owner")],
+                    bibs=[
+                        Confident(
+                            value=bib.value, confidence=bib.confidence, source=Source.OCR, note="no plausible owner"
+                        )
+                    ],
                     bib_boxes=[bib.box],
                 )
             )
@@ -176,9 +160,7 @@ def group_subjects(
 
         unique = len(scored) == 1 or scored[0][0] < _UNIQUE_MARGIN * scored[1][0]
         if unique:
-            subjects[scored[0][1]].bibs.append(
-                Confident(value=bib.value, confidence=bib.confidence, source=Source.OCR)
-            )
+            subjects[scored[0][1]].bibs.append(Confident(value=bib.value, confidence=bib.confidence, source=Source.OCR))
             subjects[scored[0][1]].bib_boxes.append(bib.box)
         else:
             # near-tie set: candidates whose cost is within the margin of the best
@@ -197,8 +179,7 @@ def group_subjects(
     for text in texts:
         center = _center(text.box)
         best = min(
-            ((cost, i) for i, person in enumerate(persons)
-             if (cost := _bib_cost(person, center)) is not FORBIDDEN),
+            ((cost, i) for i, person in enumerate(persons) if (cost := _bib_cost(person, center)) is not FORBIDDEN),
             default=None,
         )
         if best is not None:
