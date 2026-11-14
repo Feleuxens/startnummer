@@ -1,7 +1,7 @@
 """Run the full analysis pipeline on a folder of photos (one album).
 
 Usage:
-    PYTHONPATH=src python scripts/try_pipeline.py <folder> [--no-faces] [--cues]
+    uv run --no-sync python scripts/try_pipeline.py <folder> [--no-faces]
 
 --no-faces skips InsightFace (first run downloads ~300 MB of models).
 Writes <folder>/analysis.json with the serialized records.
@@ -62,12 +62,10 @@ def main() -> None:
     faces = None
     if not args.no_faces:
         from startnummer.adapters.face.insight import InsightFaceEngine
+
         faces = InsightFaceEngine()
 
     cues = None
-    #if args.cues:
-    #    from startnummer.adapters.cues.yoloworld import YoloWorldCueDetector
-    #    cues = _LoggingCues(YoloWorldCueDetector())
 
     DEFAULT_CACHE.set_max_mb_bytes(args.cache_mb)
 
@@ -76,15 +74,19 @@ def main() -> None:
         from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import (
             LeichtathletikDeEntryListParser,
         )
+
         entry_list = LeichtathletikDeEntryListParser().parse(args.entry_list)
-        print(f"entry table: {len(entry_list.athletes)} athletes"
-              + (f" ({entry_list.competition})" if entry_list.competition else ""))
+        print(
+            f"entry table: {len(entry_list.athletes)} athletes"
+            + (f" ({entry_list.competition})" if entry_list.competition else "")
+        )
 
     album = Album(owner_id=uuid.uuid4(), name=args.folder.name, sport=Sport.ATHLETICS)
     records = analyze_album(
-        album, paths,
+        album,
+        paths,
         detector=YoloDetector(),
-        ocr=RapidOcrReader(),  # enable_mkldnn=False on PaddlePaddle 3.3.x
+        ocr=RapidOcrReader(),
         faces=faces,
         cues=cues,
         entry_list=entry_list,
@@ -105,9 +107,7 @@ def main() -> None:
 
     if isdir(args.folder):
         out = args.folder / "analysis.json"
-        out.write_text(
-            json.dumps([json.loads(r.model_dump_json()) for r in records], indent=2, ensure_ascii=False)
-        )
+        out.write_text(json.dumps([json.loads(r.model_dump_json()) for r in records], indent=2, ensure_ascii=False))
         print(f"\nwrote {out}")
     else:
         print(json.dumps([json.loads(r.model_dump_json()) for r in records], indent=2, ensure_ascii=False))

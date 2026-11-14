@@ -7,7 +7,7 @@ one photo in the cluster read it confidently. Same color + same label across two
 photos = the pipeline considers it the same person.
 
 Usage:
-    PYTHONPATH=src python scripts/try_faces.py <folder>
+    uv run --no-sync python scripts/try_faces.py <folder>
 Writes <name>.faces<ext> beside each image.
 """
 
@@ -28,8 +28,14 @@ EXTENSIONS = {".jpg", ".jpeg", ".png"}
 PERSON = (0, 0, 255)
 # Cluster colors cycle; two faces sharing a color+label were matched.
 CLUSTER_COLORS = [
-    (230, 25, 75), (60, 180, 75), (255, 140, 0), (145, 30, 180),
-    (0, 180, 180), (240, 50, 230), (170, 110, 40), (128, 128, 0),
+    (230, 25, 75),
+    (60, 180, 75),
+    (255, 140, 0),
+    (145, 30, 180),
+    (0, 180, 180),
+    (240, 50, 230),
+    (170, 110, 40),
+    (128, 128, 0),
 ]
 
 _FONT_PATHS = [
@@ -54,7 +60,8 @@ def main() -> None:
         raise SystemExit(1)
     folder = Path(sys.argv[1])
     paths = sorted(
-        p for p in folder.iterdir()
+        p
+        for p in folder.iterdir()
         if p.suffix.lower() in EXTENSIONS and "annotated" not in p.name and "faces" not in p.name
     )
     if not paths:
@@ -62,7 +69,7 @@ def main() -> None:
         raise SystemExit(1)
 
     detector = YoloDetector()
-    ocr = RapidOcrReader() # PaddleOcrReader()  # enable_mkldnn=False on PaddlePaddle 3.3.x
+    ocr = RapidOcrReader()  # PaddleOcrReader()  # enable_mkldnn=False on PaddlePaddle 3.3.x
     faces = InsightFaceEngine()
 
     # Pass 1: analyze every photo, collect grouped subjects.
@@ -83,16 +90,13 @@ def main() -> None:
         for si, g in enumerate(grouped)
         if g.faces
     ]
+
     def _pick(key):
         subject = grouped_by_photo[key[0]][key[1]]
         return strong_bib(subject.bibs, subject.bib_boxes)
 
-    strong_bibs = {
-        item.key: pick.bib.value for item in items if (pick := _pick(item.key)) is not None
-    }
-    contested_keys = {
-        item.key for item in items if (pick := _pick(item.key)) is not None and pick.contested
-    }
+    strong_bibs = {item.key: pick.bib.value for item in items if (pick := _pick(item.key)) is not None}
+    contested_keys = {item.key for item in items if (pick := _pick(item.key)) is not None and pick.contested}
     clusters = cluster_faces(items, cannot_link=face_cannot_links(items, strong_bibs))
     cluster_of = {key: ci for ci, cluster in enumerate(clusters) for key in cluster}
 

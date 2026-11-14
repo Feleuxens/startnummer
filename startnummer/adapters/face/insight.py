@@ -1,29 +1,17 @@
-"""InsightFace face engine. Detects on the full frame, returns ArcFace embeddings.
+"""Full-frame face detection and ArcFace embeddings using InsightFace.
 
-buffalo_l downloads (~300 MB) on first use. Only detection + recognition modules
-are loaded; age/gender estimation is deliberately excluded.
+The default buffalo_l model downloads on first use. Only detection and
+recognition modules are loaded. The 80-pixel minimum face height filters small
+background faces; detection dimensions must be divisible by 32.
 
-Defaults are measured on a real 93-photo album, not guessed:
-- det_size (960, 960): found more of the relevant faces than 640 without the
-  extra background noise 1280 pulled in. Dimensions must be divisible by 32
-  (SCRFD constraint) — (1000, 1000) fails outright.
-- min_confidence 0.7: clear quality improvement over 0.5; higher starts losing
-  real faces.
-- min_face_height 80 px (original-image scale): drops small faces. Size is the
-  blur proxy here — background people are small AND defocused, and their noisy
-  embeddings are what poison identity clusters. Raise/lower to trade background
-  coverage against cluster quality; a true sharpness gate (variance of
-  Laplacian) is the follow-up only if large-but-blurred faces cause bad matches.
-
-Uses CUDA when onnxruntime-gpu is installed (provider list filtered against what
-the installed runtime offers, so plain onnxruntime runs CPU without warnings).
+Uses CUDA when available, with CPU as a fallback.
 """
 
 from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
 from startnummer.core.types import BoundingBox, FaceDetection
 
 try:
-    import cv2
+    import cv2  # noqa: F401 -- check the face runtime's required dependencies
     import onnxruntime
     from insightface.app import FaceAnalysis
 except ImportError as exc:  # pragma: no cover - import guard for the face extra

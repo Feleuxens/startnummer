@@ -72,4 +72,5 @@ class ImageCache:
     def stats(self) -> str:
         return f"cache: {self.hits} hits, {self.misses} misses, {self._total / 1e6:.0f} MB held"
 
+
 DEFAULT_CACHE = ImageCache()

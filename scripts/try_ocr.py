@@ -1,9 +1,9 @@
 """Detect persons, OCR (bibs + name hints), attribute bibs, and save an annotated image.
 
 Usage:
-    PYTHONPATH=src python scripts/try_ocr.py path/to/photo.jpg [--engine rapid|paddle]
+    uv run --no-sync python scripts/try_ocr.py path/to/photo.jpg [--engine rapid|paddle]
 
---engine paddle uses PaddleOCR (PP-OCR models on ONNX Runtime)
+--engine paddle uses PaddleOCR on PaddlePaddle; the default uses RapidOCR on ONNX Runtime.
 
 Writes <name>.annotated<ext> beside the original. Labels are drawn with PIL + a
 TrueType font so umlauts render correctly (OpenCV's Hershey fonts are ASCII-only).
@@ -63,9 +63,11 @@ def main() -> None:
     detector = YoloDetector()
     if args.engine == "paddle":
         from startnummer.adapters.ocr.paddle import PaddleOcrReader
+
         reader = PaddleOcrReader()
     else:
         from startnummer.adapters.ocr.rapid import RapidOcrReader
+
         reader = RapidOcrReader()
 
     for path in pictures:
@@ -91,7 +93,7 @@ def main() -> None:
         width = max(2, h // 500)
         font = _font(max(16, h // 55))
 
-        def _box(b, color, label):
+        def _box(b, color, label, *, draw=draw, width=width, font=font):
             draw.rectangle([b.x1, b.y1, b.x2, b.y2], outline=color, width=width)
             draw.text((b.x1, max(b.y1 - font.size - 2, 0)), label, fill=color, font=font)
 

@@ -47,24 +47,18 @@ class YoloDetector:
 
     def detect(self, image_path: str) -> list[PersonDetection]:
         image = self._cache.load(image_path)  # BGR; ultralytics accepts arrays directly
-        results = self._model(
-            image, conf=self._min_confidence, device=self._device, verbose=False
-        )
+        results = self._model(image, conf=self._min_confidence, device=self._device, verbose=False)
         detections: list[PersonDetection] = []
         for result in results:
             keypoints = result.keypoints
             xy = keypoints.xy.tolist() if keypoints is not None else []
-            conf = (
-                keypoints.conf.tolist()
-                if keypoints is not None and keypoints.conf is not None
-                else []
-            )
+            conf = keypoints.conf.tolist() if keypoints is not None and keypoints.conf is not None else []
             for i, xyxy in enumerate(result.boxes.xyxy.tolist()):
                 x1, y1, x2, y2 = (int(round(v)) for v in xyxy)
                 points = xy[i] if i < len(xy) else []
                 scores = conf[i] if i < len(conf) else []
 
-                def kp(index: int) -> Keypoint | None:
+                def kp(index: int, points=points, scores=scores) -> Keypoint | None:
                     if index >= len(points) or index >= len(scores):
                         return None
                     if scores[index] < self._min_kp:
@@ -72,9 +66,7 @@ class YoloDetector:
                     x, y = points[index]
                     return Keypoint(float(x), float(y))
 
-                head = kp(_NOSE) or _midpoint(kp(_L_EYE), kp(_R_EYE)) or _midpoint(
-                    kp(_L_EAR), kp(_R_EAR)
-                )
+                head = kp(_NOSE) or _midpoint(kp(_L_EYE), kp(_R_EYE)) or _midpoint(kp(_L_EAR), kp(_R_EAR))
                 detections.append(
                     PersonDetection(
                         box=BoundingBox(x1, y1, x2, y2),

@@ -1,20 +1,8 @@
-"""RapidOCR reader: PP-OCR models on ONNX Runtime instead of PaddlePaddle.
+"""Full-frame bib and name OCR using RapidOCR on ONNX Runtime.
 
-Same models as the Paddle adapter (PP-OCRv5), different runtime. Motivation:
-every runtime incident in this project (oneDNN crash, RAM regression, doc-unwarp
-coordinate corruption, macOS torch symbol clash) was PaddlePaddle, never the
-models. ONNX Runtime is already in-process for InsightFace and coexists with
-torch on all platforms.
-
-Behavior mirrors adapters/ocr/paddle.py: full-frame read, in-memory downscale to
-max_side with boxes rescaled to original coordinates, digit tokens -> bibs,
-letter tokens -> name hints.
-
-CALIBRATION (first run): RapidOCR 3.x changed its result API; _parse handles the
-known shapes and raises with a structure dump on anything else — fix there, not
-by guessing. Also verify which model generation the installed version downloads
-by default (v4 vs v5 mobile); pin via `params` if quality on the album differs
-from the Paddle adapter.
+Images can be downscaled for inference; returned boxes use original image
+coordinates. Defaults select English PP-OCRv6 small models. Numeric tokens
+become bib candidates and alphabetic tokens become name hints.
 """
 
 import re
@@ -29,7 +17,7 @@ try:
 except ImportError as exc:
     raise ImportError("RapidOcrReader requires rapidocr + opencv") from exc
 
-_BIB = re.compile(r"^\d{1,5}$")  # digits only; widen if your bibs carry a letter prefix
+_BIB = re.compile(r"^\d{1,5}$")  # numeric bibs, one to five digits
 _TEXT = re.compile(r"[A-Za-zÄÖÜäöüß]{2,}")  # >=2 letters (umlauts included) = name hint
 
 
@@ -47,7 +35,7 @@ def _parse(result) -> list[tuple[str, float, object]]:
         txts = result.txts or ()
         scores = result.scores or ()
         boxes = result.boxes if result.boxes is not None else ()
-        return list(zip(txts, (float(s) for s in scores), boxes))
+        return list(zip(txts, (float(s) for s in scores), boxes, strict=True))
     if isinstance(result, (list, tuple)):  # legacy: [[poly, (text, score)], ...]
         triples = []
         for entry in result:
@@ -66,7 +54,7 @@ class RapidOcrReader:
         self,
         bib_pattern: re.Pattern[str] = _BIB,
         text_pattern: re.Pattern[str] = _TEXT,
-        max_side: int | None = 2500,  # measured on the Paddle adapter; revalidate here
+        max_side: int | None = 2500,  # maximum image side in pixels; None disables resizing
         text_score: float = 0.5,  # OCR-level floor: recognitions below this are dropped
         params: dict | None = None,  # overrides merged over the defaults below
         cache: ImageCache | None = None,

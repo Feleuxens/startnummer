@@ -21,14 +21,10 @@ try:
     import paddle
     from paddleocr import PaddleOCR
 except ImportError as exc:  # pragma: no cover - import guard for the ocr extra
-    raise ImportError(
-        "PaddleOcrReader requires the 'ocr' extra (paddleocr) + opencv"
-    ) from exc
+    raise ImportError("PaddleOcrReader requires the 'ocr' extra (paddleocr) + opencv") from exc
 
 _BIB = re.compile(r"^\d{1,5}$")  # digits only; widen if your bibs carry a letter prefix
-_TEXT = re.compile(
-    r"[A-Za-zÄÖÜäöüß]{2,}"
-)  # >=2 letters (umlauts included) to count as a name hint
+_TEXT = re.compile(r"[A-Za-zÄÖÜäöüß]{2,}")  # >=2 letters (umlauts included) to count as a name hint
 
 
 def _resolve_device(device: str) -> str:
@@ -41,9 +37,7 @@ def _poly_to_box(poly, scale: float = 1) -> BoundingBox:
     pts = np.array(poly, dtype=float).reshape(-1, 2)
     x1, y1 = pts.min(axis=0)
     x2, y2 = pts.max(axis=0)
-    return BoundingBox(
-        int(x1 / scale), int(y1 / scale), int(x2 / scale), int(y2 / scale)
-    )
+    return BoundingBox(int(x1 / scale), int(y1 / scale), int(x2 / scale), int(y2 / scale))
 
 
 class PaddleOcrReader:
@@ -87,9 +81,7 @@ class PaddleOcrReader:
         scale = 1.0
         if self._max_side and max(image.shape[:2]) > self._max_side:
             scale = self._max_side / max(image.shape[:2])
-            image = cv2.resize(
-                image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
-            )
+            image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
         result = self._ocr.predict(image)
         if not result:
@@ -101,7 +93,7 @@ class PaddleOcrReader:
 
         bibs: list[BibRead] = []
         hints: list[TextRead] = []
-        for text, score, poly in zip(texts, scores, polys):
+        for text, score, poly in zip(texts, scores, polys, strict=True):
             value = text.strip()
             box = _poly_to_box(poly, scale)
             conf = float(score)
