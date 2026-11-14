@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SubmitEvent } from 'react';
 import type { components } from '../api/schema';
 import { api, message, unwrap } from '../api/client';
+import FacePropagation from './FacePropagation';
 
 type Schema = components['schemas'];
 type Photo = Schema['Photo'];
@@ -27,7 +28,13 @@ const selection = (photo: Photo): Selection => ({
   photo_id: photo.id,
   revision: photo.revision ?? 0,
 });
-const emptyFaces: FaceView = { available: false, session_id: null, photos: {} };
+const emptyFaces: FaceView = {
+  available: false,
+  session_id: null,
+  photos: {},
+  undo_count: 0,
+  propagation_available: false,
+};
 
 export default function Workspace() {
   const [session, setSession] = useState<Schema['SessionInfo'] | null>(null);
@@ -44,6 +51,7 @@ export default function Workspace() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Preview[] | null>(null);
+  const [propagation, setPropagation] = useState<Schema['PropagationPreview'] | null>(null);
   const [approvalPreview, setApprovalPreview] = useState<{
     batchId: string;
     albumName: string;
@@ -67,6 +75,7 @@ export default function Workspace() {
       ),
     );
     if (first) {
+      setPropagation(null);
       setSelectedId(data.batch.photos[0]?.id ?? null);
       setSubject(null);
     }
@@ -77,8 +86,8 @@ export default function Workspace() {
     setError('');
     setNotice('');
     try {
-      await task();
-      if (success) setNotice(success);
+      const result = await task();
+      if (success && result !== false) setNotice(success);
     } catch (failure) {
       setError(message(failure));
     } finally {
@@ -138,6 +147,12 @@ export default function Workspace() {
     );
     return () => window.clearTimeout(timer);
   }, [faces.expires_at, faces.available]);
+  useEffect(() => {
+    if (propagation && (!faces.available || propagation.face_session_id !== faces.session_id)) {
+      setPropagation(null);
+      setNotice('Face session ended. Saved names and captions are unchanged.');
+    }
+  }, [faces.available, faces.session_id, propagation]);
 
   async function approvePhotos(photos: Photo[], targetBatchId = batchId) {
     if (!targetBatchId || !photos.length) return;
@@ -182,6 +197,7 @@ export default function Workspace() {
   }
   async function showPreview() {
     if (!batchId) return;
+    if (dirty.current) throw new Error('Save the current photo before previewing gallery changes.');
     setPreview(
       unwrap(
         await api.GET('/api/batches/{batch_id}/apply-preview', {
@@ -214,6 +230,42 @@ export default function Workspace() {
     );
   }
 
+  async function findMatches(photo: Photo, subject: number) {
+    if (!batchId || !faces.session_id) return;
+    if (dirty.current) throw new Error('Save the name before finding matching faces.');
+    setPropagation(
+      unwrap(
+        await api.POST('/api/batches/{batch_id}/face-propagation/preview', {
+          params: { path: { batch_id: batchId } },
+          body: { source: { ...selection(photo), subject }, face_session_id: faces.session_id },
+        }),
+      ),
+    );
+  }
+
+  async function propagateNames(targets: Schema['FaceTarget'][], acknowledgeWarnings: boolean) {
+    if (!batchId || !propagation) return;
+    await action(
+      async () => {
+        unwrap(
+          await api.POST('/api/batches/{batch_id}/face-propagation', {
+            params: { path: { batch_id: batchId } },
+            body: {
+              source: propagation.source,
+              face_session_id: propagation.face_session_id,
+              targets,
+              acknowledge_unsupported_bibs: acknowledgeWarnings,
+              acknowledge_tentative_names: acknowledgeWarnings,
+            },
+          }),
+        );
+        setPropagation(null);
+        await loadBatch(batchId);
+      },
+      `Name assigned to ${targets.length} selected ${targets.length === 1 ? 'photo' : 'photos'}. Review before approving.`,
+    );
+  }
+
   if (checking)
     return (
       <main className="login">
@@ -237,12 +289,25 @@ export default function Workspace() {
     );
 
   const photos = view?.batch.photos ?? [];
+  const latestPublication = new Map(
+    view?.publications.map((operation) => [operation.photo_id, operation]),
+  );
   const visible = photos.filter(
     (p) =>
       filter === 'all' ||
       (filter === 'unresolved' && p.analysis?.record.status !== 'auto' && !p.conflicts_resolved) ||
       (filter === 'approved' && approved(p)) ||
-      (filter === 'unapproved' && !approved(p)),
+      (filter === 'unapproved' && !approved(p)) ||
+      (filter === 'failed' && p.analysis?.record.status === 'failed') ||
+      (filter === 'pending' && !p.analysis) ||
+      (filter === 'publishing-issues' &&
+        !latestPublication.get(p.id)?.restored &&
+        ['pending', 'conflict', 'failure'].includes(
+          latestPublication.get(p.id)?.result.state ?? '',
+        )) ||
+      (filter === 'published' &&
+        !latestPublication.get(p.id)?.restored &&
+        ['applied', 'unchanged'].includes(latestPublication.get(p.id)?.result.state ?? '')),
   );
   const selected = photos.find((p) => p.id === selectedId);
   const selectedPosition = photos.findIndex((p) => p.id === selectedId);
@@ -264,7 +329,10 @@ export default function Workspace() {
           href="#"
           onClick={(event) => {
             event.preventDefault();
+            if (dirty.current && !window.confirm('Leave without saving caption changes?')) return;
+            dirty.current = false;
             setScreen('albums');
+            setFaces(emptyFaces);
           }}
         >
           <span className="bib-mark" aria-hidden="true">
@@ -312,6 +380,13 @@ export default function Workspace() {
             void action(async () => {
               if (dirty.current && !window.confirm('Sign out without saving caption changes?'))
                 return;
+              if (
+                running &&
+                !window.confirm(
+                  'Sign out and cancel analysis? Saved captions will be kept and temporary face data discarded.',
+                )
+              )
+                return;
               unwrap(await api.DELETE('/api/session'));
               dirty.current = false;
               setSession(null);
@@ -320,7 +395,7 @@ export default function Workspace() {
             })
           }
         >
-          Sign out
+          {running ? 'Sign out and cancel analysis' : 'Sign out'}
         </button>
       </aside>
       <main className="canvas">
@@ -332,7 +407,7 @@ export default function Workspace() {
                 ? 'New batch'
                 : 'Your photo workspace'}
           </span>
-          <span>{session.gallery_url ? 'Chevereto connected' : 'No gallery configured'}</span>
+          <span>{session.gallery_url ? 'Chevereto configured' : 'No gallery configured'}</span>
         </header>
         <div className={`content ${screen === 'review' && mobileDetail ? 'detail-open' : ''}`}>
           {error && (
@@ -425,6 +500,8 @@ export default function Workspace() {
                     disabled={busy || running || dirty.current}
                     onClick={() =>
                       void action(async () => {
+                        if (dirty.current)
+                          throw new Error('Save current changes before analyzing again.');
                         unwrap(
                           await api.POST('/api/batches/{batch_id}/analysis', {
                             params: { path: { batch_id: view.batch.album.id } },
@@ -436,6 +513,24 @@ export default function Workspace() {
                   >
                     {latestJob ? 'Analyze again' : 'Analyze batch'}
                   </button>
+                  {running && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void action(async () => {
+                          unwrap(
+                            await api.POST('/api/batches/{batch_id}/analysis/cancel', {
+                              params: { path: { batch_id: view.batch.album.id } },
+                            }),
+                          );
+                          setFaces(emptyFaces);
+                          await loadBatch(view.batch.album.id);
+                        }, 'Analysis cancelled. Saved review work was kept.')
+                      }
+                    >
+                      Cancel analysis
+                    </button>
+                  )}
                   <button
                     disabled={busy || running}
                     onClick={() =>
@@ -501,6 +596,10 @@ export default function Workspace() {
                     <option value="unresolved">Unresolved evidence</option>
                     <option value="unapproved">Not approved</option>
                     <option value="approved">Approved</option>
+                    <option value="failed">Analysis failed</option>
+                    <option value="pending">Not analyzed</option>
+                    <option value="publishing-issues">Publishing needs attention</option>
+                    <option value="published">Published</option>
                   </select>
                 </label>
                 <button
@@ -522,6 +621,32 @@ export default function Workspace() {
                 >
                   Approve all eligible ({eligibleUnapproved.length})…
                 </button>
+                {faces.available && faces.undo_id && faces.session_id && (
+                  <button
+                    disabled={busy || running}
+                    onClick={() =>
+                      void action(async () => {
+                        if (dirty.current)
+                          throw new Error('Save current edits before undoing a name assignment.');
+                        if (
+                          !window.confirm(
+                            `Undo the last name assignment in ${faces.undo_count} photos? Approvals will be removed. Photos edited afterward cannot be undone.`,
+                          )
+                        )
+                          return false;
+                        unwrap(
+                          await api.POST('/api/batches/{batch_id}/face-propagation/undo', {
+                            params: { path: { batch_id: view.batch.album.id } },
+                            body: { face_session_id: faces.session_id!, undo_id: faces.undo_id! },
+                          }),
+                        );
+                        await loadBatch(view.batch.album.id);
+                      }, 'Last name assignment undone. Review the affected captions before approving.')
+                    }
+                  >
+                    Undo last name assignment ({faces.undo_count})
+                  </button>
+                )}
                 <span className="muted">
                   Face selection{' '}
                   {faces.available
@@ -529,6 +654,13 @@ export default function Workspace() {
                     : 'unavailable · saved captions remain editable'}
                 </span>
               </div>
+              {faces.available && !faces.propagation_available && (
+                <p className="worker-notice" role="status">
+                  {faces.propagation_unavailable_reason ||
+                    'Name propagation is unavailable for this worker session. Restart the updated API and worker, then analyze a fresh batch. Keep this batch to preserve your review edits.'}{' '}
+                  Individual face naming remains available.
+                </p>
+              )}
 
               <div className={`review-grid ${mobileDetail ? 'show-detail' : ''}`}>
                 <section className="contact-sheet" aria-label="Photo queue">
@@ -656,6 +788,52 @@ export default function Workspace() {
                           `Approval removed for ${selected.display_name}.`,
                         )
                       }
+                      onFindMatches={(index) => action(() => findMatches(selected, index))}
+                      onAddPerson={(rosterIndex) =>
+                        action(async () => {
+                          if (dirty.current)
+                            throw new Error('Save current edits before adding a person.');
+                          const photo = unwrap(
+                            await api.POST('/api/batches/{batch_id}/photos/{photo_id}/subjects', {
+                              params: {
+                                path: { batch_id: view.batch.album.id, photo_id: selected.id },
+                              },
+                              body: { revision: selected.revision, roster_index: rosterIndex },
+                            }),
+                          );
+                          await loadBatch(view.batch.album.id);
+                          setSubject((photo.analysis?.record.subjects.length ?? 1) - 1);
+                        }, 'Person added. Review the generated caption before approving.')
+                      }
+                      onRemovePerson={(index) =>
+                        action(async () => {
+                          if (dirty.current)
+                            throw new Error('Save current edits before removing a person.');
+                          if (
+                            !window.confirm(
+                              'Remove this added person from the photo and regenerate the caption suggestion?',
+                            )
+                          )
+                            return false;
+                          unwrap(
+                            await api.DELETE(
+                              '/api/batches/{batch_id}/photos/{photo_id}/subjects/{subject_index}',
+                              {
+                                params: {
+                                  path: {
+                                    batch_id: view.batch.album.id,
+                                    photo_id: selected.id,
+                                    subject_index: index,
+                                  },
+                                },
+                                body: { revision: selected.revision },
+                              },
+                            ),
+                          );
+                          setSubject(null);
+                          await loadBatch(view.batch.album.id);
+                        }, 'Added person removed. Review the caption before approving.')
+                      }
                     />
                   </section>
                 )}
@@ -676,17 +854,92 @@ export default function Workspace() {
                         <span>Live description: {operation.result.live_value ?? '(empty)'}</span>
                       )}
                       {!operation.restored &&
+                        ['pending', 'failure', 'conflict'].includes(operation.result.state) && (
+                          <>
+                            <button
+                              disabled={busy || running}
+                              onClick={() =>
+                                void action(async () => {
+                                  if (dirty.current)
+                                    throw new Error(
+                                      'Save current edits before checking the gallery.',
+                                    );
+                                  const result = unwrap(
+                                    await api.POST(
+                                      '/api/batches/{batch_id}/publications/{operation_id}/reconcile',
+                                      {
+                                        params: {
+                                          path: {
+                                            batch_id: view.batch.album.id,
+                                            operation_id: operation.id,
+                                          },
+                                        },
+                                      },
+                                    ),
+                                  );
+                                  await loadBatch(view.batch.album.id);
+                                  setNotice(
+                                    result.result.state === 'unchanged'
+                                      ? 'Gallery change confirmed. No description was written.'
+                                      : result.result.error ||
+                                          'Gallery differs from this operation. Load its live description to review.',
+                                  );
+                                })
+                              }
+                            >
+                              Check gallery outcome
+                            </button>
+                            <button
+                              disabled={busy || running}
+                              onClick={() =>
+                                void action(async () => {
+                                  if (dirty.current)
+                                    throw new Error(
+                                      'Save current edits before loading the gallery description.',
+                                    );
+                                  const photo = photos.find(
+                                    (photo) => photo.id === operation.photo_id,
+                                  );
+                                  if (!photo) return;
+                                  unwrap(
+                                    await api.POST(
+                                      '/api/batches/{batch_id}/photos/{photo_id}/refresh-description',
+                                      {
+                                        params: {
+                                          path: {
+                                            batch_id: view.batch.album.id,
+                                            photo_id: photo.id,
+                                          },
+                                        },
+                                        body: { revision: photo.revision },
+                                      },
+                                    ),
+                                  );
+                                  await loadBatch(view.batch.album.id);
+                                  selectPhoto(photo);
+                                }, 'Live description loaded. Review and approve the replacement again.')
+                              }
+                            >
+                              Load live description for review
+                            </button>
+                          </>
+                        )}
+                      {!operation.restored &&
                         ['applied', 'unchanged'].includes(operation.result?.state ?? '') && (
                           <button
                             disabled={busy}
                             onClick={() =>
                               void action(async () => {
+                                if (dirty.current)
+                                  throw new Error(
+                                    'Save current edits before restoring a description.',
+                                  );
                                 if (
                                   !window.confirm(
                                     'Restore the previous gallery description? This succeeds only if it has not changed since Apply.',
                                   )
                                 )
-                                  return;
+                                  return false;
                                 const result = unwrap(
                                   await api.POST(
                                     '/api/batches/{batch_id}/publications/{operation_id}/restore',
@@ -747,6 +1000,28 @@ export default function Workspace() {
           )}
         </div>
       </main>
+      {propagation && (
+        <FacePropagation
+          preview={propagation}
+          photos={photos}
+          busy={busy}
+          error={error}
+          onClose={() => setPropagation(null)}
+          onApply={propagateNames}
+          onReview={async (target) => {
+            if (!batchId) return;
+            await action(async () => {
+              const data = await loadBatch(batchId);
+              const photo = data.batch.photos.find((photo) => photo.id === target.photo_id);
+              if (!photo) throw new Error('This photo is no longer available.');
+              setPropagation(null);
+              setSelectedId(photo.id);
+              setSubject(photo.revision === target.revision ? target.subject : null);
+              setMobileDetail(true);
+            });
+          }}
+        />
+      )}
       {approvalPreview && (
         <dialog
           className="apply-dialog"
@@ -1056,6 +1331,9 @@ function Editor({
   onSave,
   onApprove,
   onUnapprove,
+  onFindMatches,
+  onAddPerson,
+  onRemovePerson,
 }: {
   photo: Photo;
   roster: Schema['EntryList'];
@@ -1068,12 +1346,26 @@ function Editor({
   onSave: (patch: Edit) => Promise<void>;
   onApprove: () => Promise<void>;
   onUnapprove: () => Promise<void>;
+  onFindMatches: (subject: number) => Promise<void>;
+  onAddPerson: (rosterIndex: number) => Promise<void>;
+  onRemovePerson: (subject: number) => Promise<void>;
 }) {
   const [caption, setCaption] = useState(photo.caption ?? '');
   const [replace, setReplace] = useState(photo.replace_existing ?? false);
   const [resolved, setResolved] = useState(photo.conflicts_resolved ?? false);
   const [patch, setPatch] = useState<Partial<Edit>>({});
   const [dirty, setDirty] = useState(false);
+  const [rosterQuery, setRosterQuery] = useState('');
+  const [rosterIndex, setRosterIndex] = useState('');
+  const peopleToAdd = (roster.athletes ?? [])
+    .map((person, index) => ({ person, index }))
+    .filter(({ person }) =>
+      [person.name, person.bib, person.club]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(rosterQuery.trim().toLocaleLowerCase()),
+    );
   const record = photo.analysis?.record;
   const subjects = record?.subjects ?? [];
   const mark = () => {
@@ -1096,7 +1388,10 @@ function Editor({
       ...patch,
     };
     if (caption !== (photo.caption ?? '')) body.caption = caption;
-    if (subject != null && ('athlete_name' in patch || 'roster_bib' in patch || 'bib' in patch)) {
+    if (
+      subject != null &&
+      ('athlete_name' in patch || 'roster_bib' in patch || 'bib' in patch || 'club' in patch)
+    ) {
       body.subject = subject;
       if (
         faces.available &&
@@ -1155,17 +1450,66 @@ function Editor({
           {!subjects.length && (
             <p className="muted">
               {record
-                ? 'No identifiable subjects found. You can still edit the caption.'
-                : 'Analyze this batch to see bib and athlete evidence.'}
+                ? 'No subjects detected. Add someone from the roster to generate a caption.'
+                : 'Add someone from the roster, or analyze the batch to detect subjects.'}
             </p>
           )}
+          <details className="add-person" open={!subjects.length}>
+            <summary>Add person from roster</summary>
+            <div className="subject-editor">
+              <label>
+                Find roster person
+                <input
+                  value={rosterQuery}
+                  placeholder="Name, bib, or club"
+                  onChange={(event) => {
+                    setRosterQuery(event.target.value);
+                    setRosterIndex('');
+                  }}
+                />
+              </label>
+              <label>
+                Person to add
+                <select
+                  value={rosterIndex}
+                  onChange={(event) => setRosterIndex(event.target.value)}
+                >
+                  <option value="">Choose a person</option>
+                  {peopleToAdd.map(({ person, index }) => (
+                    <option value={index} key={index}>
+                      {[person.bib, person.name, person.club].filter(Boolean).join(' · ')}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!peopleToAdd.length && <small>No roster entries match this search.</small>}
+              <small>
+                Adds this person to this photo and generates a caption suggestion. Edited captions
+                are kept.
+              </small>
+              {dirty && <small>Save current edits before adding a person.</small>}
+              <button
+                type="button"
+                disabled={busy || dirty || rosterIndex === ''}
+                onClick={() => void onAddPerson(Number(rosterIndex))}
+              >
+                Add to this photo
+              </button>
+            </div>
+          </details>
           {subjects.map((item, index) => (
             <button
               type="button"
               className={`subject-row ${subject === index ? 'selected' : ''}`}
               key={index}
               onClick={() => {
-                if (dirty && ('athlete_name' in patch || 'roster_bib' in patch || 'bib' in patch))
+                if (
+                  dirty &&
+                  ('athlete_name' in patch ||
+                    'roster_bib' in patch ||
+                    'bib' in patch ||
+                    'club' in patch)
+                )
                   return;
                 setSubject(subject === index ? null : index);
               }}
@@ -1239,7 +1583,37 @@ function Editor({
                   onChange={(event) => update({ club: event.target.value })}
                 />
               </label>
-              <small>This names this occurrence only.</small>
+              <small>
+                {currentSubject.added_manually
+                  ? 'Added manually from the roster. No detected face is linked to this entry.'
+                  : 'Saving names this occurrence. Find matching faces afterward to assign it elsewhere.'}
+              </small>
+              {subject != null && !currentSubject.added_manually && (
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    dirty ||
+                    !faces.available ||
+                    !faces.propagation_available ||
+                    currentSubject.athlete?.source !== 'manual' ||
+                    !faces.photos[photo.id]?.some((face) => face.subject === subject)
+                  }
+                  onClick={() => void onFindMatches(subject)}
+                >
+                  Find matching faces…
+                </button>
+              )}
+              {subject != null && currentSubject.added_manually && (
+                <button
+                  type="button"
+                  className="danger-text"
+                  disabled={busy || dirty}
+                  onClick={() => void onRemovePerson(subject)}
+                >
+                  Remove added person
+                </button>
+              )}
             </div>
           )}
         </section>

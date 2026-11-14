@@ -70,6 +70,7 @@ button.primary:hover:not(:disabled) {
   background: #ddd;
 }
 button:focus-visible,
+summary:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -635,6 +636,13 @@ button.face-box.chosen {
 .subject-editor label {
   font-size: 12px;
 }
+.add-person {
+  margin: 12px 0;
+}
+.editor .add-person > summary {
+  color: var(--text);
+  font-weight: 500;
+}
 .editor-actions {
   display: flex;
   gap: 8px;
@@ -927,5 +935,96 @@ button.face-box.chosen {
   }
   .apply-dialog {
     padding: 18px;
+  }
+}
+
+.propagation-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+.propagation-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.propagation-choice {
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.propagation-choice input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.propagation-filename {
+  font-weight: 600;
+}
+.propagation-dialog > h2,
+.propagation-dialog > p,
+.propagation-dialog > .bib-warnings,
+.propagation-dialog > .bib-confirmation,
+.propagation-dialog > .actions {
+  flex-shrink: 0;
+}
+.propagation-dialog > .actions {
+  margin-top: 0;
+}
+.propagation-dialog h2,
+.propagation-list label {
+  overflow-wrap: anywhere;
+}
+.propagation-list > li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.propagation-list > li > div {
+  min-width: 0;
+}
+.propagation-list p {
+  overflow-wrap: anywhere;
+}
+.propagation-list h3 {
+  margin-top: 16px;
+}
+.propagation-image {
+  position: relative;
+  align-self: start;
+}
+.propagation-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.match-outline {
+  position: absolute;
+  border: 2px solid var(--text);
+  pointer-events: none;
+}
+.worker-notice {
+  margin: 0 0 16px;
+  color: var(--muted);
+  max-width: 75ch;
+}
+.bib-warnings {
+  color: var(--muted);
+  padding-inline-start: 18px;
+  overflow-wrap: anywhere;
+}
+.bib-confirmation {
+  margin-bottom: 16px;
+}
+@media (max-width: 560px) {
+  .propagation-list > li {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
   }
 }
