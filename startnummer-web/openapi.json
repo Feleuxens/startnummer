@@ -1,0 +1,2347 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Startnummer",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/session": {
+      "get": {
+        "summary": "Session Info",
+        "operationId": "session_info_api_session_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Login",
+        "operationId": "login_api_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Logout",
+        "operationId": "logout_api_session_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Logout Api Session Delete"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches": {
+      "get": {
+        "summary": "List Batches",
+        "operationId": "list_batches_api_batches_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BatchSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Batches Api Batches Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Import Batch",
+        "operationId": "import_batch_api_batches_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_batch_api_batches_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Batch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}": {
+      "get": {
+        "summary": "Get Batch",
+        "operationId": "get_batch_api_batches__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Batch",
+        "operationId": "delete_batch_api_batches__batch_id__delete",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Batch Api Batches  Batch Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/analysis": {
+      "post": {
+        "summary": "Analyze",
+        "operationId": "analyze_api_batches__batch_id__analysis_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/faces": {
+      "get": {
+        "summary": "Get Faces",
+        "operationId": "get_faces_api_batches__batch_id__faces_get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaceView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/photos/{photo_id}": {
+      "patch": {
+        "summary": "Edit Photo",
+        "operationId": "edit_photo_api_batches__batch_id__photos__photo_id__patch",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Edit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Photo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/approve": {
+      "post": {
+        "summary": "Approve",
+        "operationId": "approve_api_batches__batch_id__approve_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Selected"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Approve Api Batches  Batch Id  Approve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/photos/{photo_id}/unapprove": {
+      "post": {
+        "summary": "Unapprove",
+        "operationId": "unapprove_api_batches__batch_id__photos__photo_id__unapprove_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Revision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Photo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/finish": {
+      "post": {
+        "summary": "Finish",
+        "operationId": "finish_api_batches__batch_id__finish_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Finish Api Batches  Batch Id  Finish Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/apply-preview": {
+      "get": {
+        "summary": "Preview",
+        "operationId": "preview_api_batches__batch_id__apply_preview_get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChangePreview"
+                  },
+                  "title": "Response Preview Api Batches  Batch Id  Apply Preview Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/apply": {
+      "post": {
+        "summary": "Apply",
+        "operationId": "apply_api_batches__batch_id__apply_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Selected"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Publication"
+                  },
+                  "title": "Response Apply Api Batches  Batch Id  Apply Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/publications/{operation_id}/restore": {
+      "post": {
+        "summary": "Restore",
+        "operationId": "restore_api_batches__batch_id__publications__operation_id__restore_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/photos/{photo_id}": {
+      "get": {
+        "summary": "Photo Bytes",
+        "operationId": "photo_bytes_api_photos__photo_id__get",
+        "parameters": [
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/disciplines": {
+      "get": {
+        "summary": "Disciplines",
+        "operationId": "disciplines_api_disciplines_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DisciplineOption"
+                  },
+                  "type": "array",
+                  "title": "Response Disciplines Api Disciplines Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Album": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sport": {
+            "$ref": "#/components/schemas/Sport"
+          },
+          "meet_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meet Name"
+          },
+          "roster_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Source"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owner_id",
+          "name",
+          "sport",
+          "meet_name",
+          "roster_source",
+          "created_at"
+        ],
+        "title": "Album"
+      },
+      "AnalysisDocument": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "record": {
+            "$ref": "#/components/schemas/AnalysisRecord"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "record"
+        ],
+        "title": "AnalysisDocument"
+      },
+      "AnalysisRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "album_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Album Id"
+          },
+          "content_hash": {
+            "type": "string",
+            "title": "Content Hash"
+          },
+          "source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Path"
+          },
+          "meet_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meet Name"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "event": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AthleticsEvent"
+              },
+              {
+                "$ref": "#/components/schemas/HandballEvent"
+              }
+            ],
+            "title": "Event",
+            "discriminator": {
+              "propertyName": "sport",
+              "mapping": {
+                "athletics": "#/components/schemas/AthleticsEvent",
+                "handball": "#/components/schemas/HandballEvent"
+              }
+            }
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/Subject"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "extra_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Extra Tags"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Status",
+            "default": "pending"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owner_id",
+          "album_id",
+          "content_hash",
+          "source_path",
+          "meet_name",
+          "failure_reason",
+          "event",
+          "subjects",
+          "description",
+          "extra_tags",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AnalysisRecord"
+      },
+      "Athlete": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "bib": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bib"
+          },
+          "club": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Club"
+          },
+          "year_birth": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Birth"
+          },
+          "entered_events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Entered Events"
+          },
+          "athlete_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Athlete Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "Athlete",
+        "description": "Roster data; match confidence belongs to Subject.athlete."
+      },
+      "AthleticsDiscipline": {
+        "type": "string",
+        "enum": [
+          "50m",
+          "60m",
+          "75m",
+          "80m",
+          "100m",
+          "150m",
+          "200m",
+          "300m",
+          "400m",
+          "600m",
+          "800m",
+          "1000m",
+          "1500m",
+          "2000m",
+          "3000m",
+          "5000m",
+          "10000m",
+          "60mH",
+          "80mH",
+          "100mH",
+          "110mH",
+          "300mH",
+          "400mH",
+          "4x50m",
+          "4x75m",
+          "4x100m",
+          "4x200m",
+          "4x400m",
+          "3x800m",
+          "3x1000m",
+          "steeplechase",
+          "walking",
+          "long_jump",
+          "high_jump",
+          "pole_vault",
+          "triple_jump",
+          "shot_put",
+          "javelin",
+          "discus",
+          "hammer",
+          "ball",
+          "other",
+          "no_event"
+        ],
+        "title": "AthleticsDiscipline"
+      },
+      "AthleticsEvent": {
+        "properties": {
+          "sport": {
+            "type": "string",
+            "const": "athletics",
+            "title": "Sport",
+            "default": "athletics"
+          },
+          "discipline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confident_AthleticsDiscipline_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "custom_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AthleticsKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "custom_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Label"
+          }
+        },
+        "type": "object",
+        "title": "AthleticsEvent"
+      },
+      "AthleticsKind": {
+        "type": "string",
+        "enum": [
+          "flat",
+          "hurdles",
+          "relay",
+          "steeplechase",
+          "walking",
+          "jump",
+          "throw"
+        ],
+        "title": "AthleticsKind"
+      },
+      "Batch": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "album": {
+            "$ref": "#/components/schemas/Album"
+          },
+          "roster": {
+            "$ref": "#/components/schemas/EntryList"
+          },
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/Photo"
+            },
+            "type": "array",
+            "title": "Photos"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "album",
+          "roster",
+          "photos",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Batch"
+      },
+      "BatchSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "photo_count": {
+            "type": "integer",
+            "title": "Photo Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "updated_at",
+          "photo_count"
+        ],
+        "title": "BatchSummary"
+      },
+      "BatchView": {
+        "properties": {
+          "batch": {
+            "$ref": "#/components/schemas/Batch"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "type": "array",
+            "title": "Jobs"
+          },
+          "publications": {
+            "items": {
+              "$ref": "#/components/schemas/Publication"
+            },
+            "type": "array",
+            "title": "Publications"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch",
+          "jobs",
+          "publications"
+        ],
+        "title": "BatchView"
+      },
+      "Body_import_batch_api_batches_post": {
+        "properties": {
+          "import_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "meet_name": {
+            "type": "string",
+            "title": "Meet Name",
+            "default": ""
+          },
+          "gallery_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gallery Url"
+          },
+          "roster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Url"
+          },
+          "roster_file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster File"
+          },
+          "photos": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photos"
+          }
+        },
+        "type": "object",
+        "title": "Body_import_batch_api_batches_post"
+      },
+      "ChangePreview": {
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Photo Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "change": {
+            "$ref": "#/components/schemas/DescriptionWrite"
+          }
+        },
+        "type": "object",
+        "required": [
+          "photo_id",
+          "revision",
+          "display_name",
+          "change"
+        ],
+        "title": "ChangePreview"
+      },
+      "Confident_Athlete_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/Athlete"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "confidence",
+          "source"
+        ],
+        "title": "Confident[Athlete]"
+      },
+      "Confident_AthleticsDiscipline_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AthleticsDiscipline"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "confidence",
+          "source"
+        ],
+        "title": "Confident[AthleticsDiscipline]"
+      },
+      "Confident_HandballDiscipline_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/HandballDiscipline"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "confidence",
+          "source"
+        ],
+        "title": "Confident[HandballDiscipline]"
+      },
+      "Confident_str_": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "confidence",
+          "source"
+        ],
+        "title": "Confident[str]"
+      },
+      "DescriptionWrite": {
+        "properties": {
+          "destination": {
+            "$ref": "#/components/schemas/Destination"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected"
+          },
+          "replacement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "expected",
+          "replacement"
+        ],
+        "title": "DescriptionWrite"
+      },
+      "Destination": {
+        "properties": {
+          "instance": {
+            "type": "string",
+            "title": "Instance"
+          },
+          "image_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Image Id"
+          },
+          "page_url": {
+            "type": "string",
+            "title": "Page Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "instance",
+          "image_id",
+          "page_url"
+        ],
+        "title": "Destination"
+      },
+      "DisciplineOption": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/AthleticsDiscipline"
+          },
+          "de": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "De"
+          },
+          "en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "En"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "de",
+          "en"
+        ],
+        "title": "DisciplineOption"
+      },
+      "Edit": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "bib": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bib"
+          },
+          "roster_bib": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Bib"
+          },
+          "athlete_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Athlete Name"
+          },
+          "club": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Club"
+          },
+          "discipline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AthleticsDiscipline"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "title": "Replace Existing",
+            "default": false
+          },
+          "conflicts_resolved": {
+            "type": "boolean",
+            "title": "Conflicts Resolved",
+            "default": false
+          },
+          "face_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Session Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "Edit"
+      },
+      "EntryList": {
+        "properties": {
+          "competition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competition"
+          },
+          "athletes": {
+            "items": {
+              "$ref": "#/components/schemas/Athlete"
+            },
+            "type": "array",
+            "title": "Athletes"
+          }
+        },
+        "type": "object",
+        "title": "EntryList"
+      },
+      "FaceBox": {
+        "properties": {
+          "subject": {
+            "type": "integer",
+            "title": "Subject"
+          },
+          "box": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Box"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "box"
+        ],
+        "title": "FaceBox"
+      },
+      "FaceView": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "photos": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/FaceBox"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Photos"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "session_id",
+          "photos"
+        ],
+        "title": "FaceView"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HandballDiscipline": {
+        "type": "string",
+        "enum": [
+          "match",
+          "other",
+          "no_event"
+        ],
+        "title": "HandballDiscipline"
+      },
+      "HandballEvent": {
+        "properties": {
+          "sport": {
+            "type": "string",
+            "const": "handball",
+            "title": "Sport",
+            "default": "handball"
+          },
+          "discipline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confident_HandballDiscipline_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "HandballEvent"
+      },
+      "Job": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState",
+            "default": "queued"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts",
+            "default": 0
+          },
+          "max_attempts": {
+            "type": "integer",
+            "title": "Max Attempts",
+            "default": 3
+          },
+          "lease_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Token"
+          },
+          "lease_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Until"
+          },
+          "completed": {
+            "type": "integer",
+            "title": "Completed",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase",
+            "default": "queued"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owner_id",
+          "batch_id",
+          "state",
+          "attempts",
+          "max_attempts",
+          "lease_token",
+          "lease_until",
+          "completed",
+          "total",
+          "phase",
+          "error",
+          "created_at"
+        ],
+        "title": "Job"
+      },
+      "JobState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "failed",
+          "done"
+        ],
+        "title": "JobState"
+      },
+      "Login": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Login"
+      },
+      "Photo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "blob_key": {
+            "type": "string",
+            "title": "Blob Key"
+          },
+          "content_hash": {
+            "type": "string",
+            "title": "Content Hash"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "mime_type": {
+            "type": "string",
+            "title": "Mime Type"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width",
+            "default": 0
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height",
+            "default": 0
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Destination"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Description"
+          },
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          },
+          "caption_edited": {
+            "type": "boolean",
+            "title": "Caption Edited",
+            "default": false
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "default": 0
+          },
+          "approved_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved Revision"
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "title": "Replace Existing",
+            "default": false
+          },
+          "conflicts_resolved": {
+            "type": "boolean",
+            "title": "Conflicts Resolved",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "blob_key",
+          "content_hash",
+          "size",
+          "mime_type",
+          "width",
+          "height",
+          "destination",
+          "current_description",
+          "analysis",
+          "proposal",
+          "caption",
+          "caption_edited",
+          "revision",
+          "approved_revision",
+          "replace_existing",
+          "conflicts_resolved"
+        ],
+        "title": "Photo"
+      },
+      "Publication": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Photo Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "change": {
+            "$ref": "#/components/schemas/DescriptionWrite"
+          },
+          "result": {
+            "$ref": "#/components/schemas/WriteResult"
+          },
+          "restored": {
+            "type": "boolean",
+            "title": "Restored",
+            "default": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owner_id",
+          "batch_id",
+          "photo_id",
+          "revision",
+          "change",
+          "result",
+          "restored",
+          "created_at"
+        ],
+        "title": "Publication"
+      },
+      "Revision": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "Revision"
+      },
+      "Selected": {
+        "properties": {
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/Selection"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Photos"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "photos"
+        ],
+        "title": "Selected"
+      },
+      "Selection": {
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Photo Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "photo_id",
+          "revision"
+        ],
+        "title": "Selection"
+      },
+      "SessionInfo": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "gallery_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gallery Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username"
+        ],
+        "title": "SessionInfo"
+      },
+      "Source": {
+        "type": "string",
+        "enum": [
+          "detector",
+          "ocr",
+          "face_match",
+          "vlm",
+          "roster",
+          "rule",
+          "manual"
+        ],
+        "title": "Source"
+      },
+      "Sport": {
+        "type": "string",
+        "enum": [
+          "athletics",
+          "handball"
+        ],
+        "title": "Sport"
+      },
+      "Status": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "auto",
+          "needs_review",
+          "confirmed",
+          "failed"
+        ],
+        "title": "Status"
+      },
+      "Subject": {
+        "properties": {
+          "bibs": {
+            "items": {
+              "$ref": "#/components/schemas/Confident_str_"
+            },
+            "type": "array",
+            "title": "Bibs"
+          },
+          "athlete": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confident_Athlete_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "Subject",
+        "description": "One detected person and their OCR, propagated bibs, and roster match."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WriteResult": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/WriteState"
+          },
+          "live_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Value"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "WriteResult"
+      },
+      "WriteState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "applied",
+          "unchanged",
+          "conflict",
+          "failure"
+        ],
+        "title": "WriteState"
+      }
+    }
+  }
+}
