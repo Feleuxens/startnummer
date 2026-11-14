@@ -1,0 +1,1 @@
+"""Competition-roster input adapters."""

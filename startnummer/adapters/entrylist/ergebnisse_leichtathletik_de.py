@@ -87,17 +87,23 @@ class LeichtathletikDeEntryListParser:
         raise FileNotFoundError(source)
 
     def _parse_html(self, raw_html: str) -> EntryList:
+        return self.parse_content(raw_html)
+
+    def parse_content(self, raw_html: str) -> EntryList:
+        """Parse already-fetched HTML; transport belongs to the app boundary."""
         table = EntryList()
         try:
             html = BeautifulSoup(raw_html, features="html.parser")
             table.competition = ""
             entries = html.find_all("div", {"class": "entryline"})
             for entry in entries:
-                divs = entry.findAll("div")
-                bib = divs[1].getText().strip()
-                raw_name = divs[3].getText().strip().split()
-                club = divs[4].getText().strip()
-                year_birth = int(divs[7].getText().strip()) if divs[7].getText().strip() else None
+                divs = entry.find_all("div")
+                if len(divs) < 9:
+                    raise ValueError("Malformed Competitoroverview entry row")
+                bib = divs[1].get_text().strip()
+                raw_name = divs[3].get_text().strip().split()
+                club = divs[4].get_text().strip()
+                year_birth = int(divs[7].get_text().strip()) if divs[7].get_text().strip() else None
 
                 if year_birth:
                     name = " ".join(raw_name[1:]) + " " + raw_name[0]
@@ -105,14 +111,14 @@ class LeichtathletikDeEntryListParser:
                     name = " ".join(raw_name)
 
                 disciplines: list[AthleticsDiscipline] = []
-                for a in divs[8].findAll("a"):
-                    discipline = a.getText().strip()
+                for a in divs[8].find_all("a"):
+                    discipline = a.get_text().strip()
                     disciplines.append(_map_discipline(discipline, self._abbreviations))
 
                 athlete = Athlete(name=name, bib=bib, club=club, year_birth=year_birth, entered_events=disciplines)
                 table.athletes.append(athlete)
-        except AttributeError as e:
-            print(e)
+        except (AttributeError, IndexError) as e:
+            raise ValueError("Malformed Competitoroverview HTML") from e
 
         return table
 

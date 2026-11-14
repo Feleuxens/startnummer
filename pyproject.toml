@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
 
-# Always installed — the pure spine. No web, DB, or ML libs here.
+# Core dependencies.
 dependencies = [
     "pydantic==2.13.4",
 ]
@@ -22,7 +22,7 @@ db = [
     "alembic==1.18.5",
 ]
 
-# Light image: serves the API + review UI
+# API and review UI.
 api = [
     "startnummer[db]",
     "fastapi==0.139.0",
@@ -30,9 +30,13 @@ api = [
     "jinja2==3.1.6",
     "httpx==0.28.1",
     "xxhash==3.8.1",
+    "beautifulsoup4==4.15.0",
+    "pillow==12.3.0",
+    "pymysql==1.2.0",
+    "python-multipart>=0.0.20,<1",
 ]
 
-# Heavy image: runs the analysis pipeline. Combine with ocr + face (+ vlm on GPU).
+# Analysis worker. Add the ocr and face extras for inference.
 worker = [
     "startnummer[db]",
     "beautifulsoup4==4.15.0",
@@ -53,7 +57,6 @@ ocr = [
     "paddlepaddle==3.2.2",
     "rapidocr==3.9.1",
     "rapidocr-onnxruntime==1.4.4",
-    # "paddlepaddle-gpu==2.6.2"
 ]
 
 # Face detection + ArcFace embeddings.
@@ -64,7 +67,7 @@ face = [
     "numpy",
 ]
 
-# Optional GPU enrichment pass (descriptions + hard-bib recovery). Run on the 4070.
+# Optional vision-language model dependencies.
 vlm = [
     "transformers==5.12.1",
     "torch",

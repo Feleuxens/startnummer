@@ -1,0 +1,103 @@
+# Only for dev environment. Change passwords if used in production
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    volumes:
+      - ./dev-containers/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: startnummer
+      POSTGRES_USER: startnummer
+      POSTGRES_PASSWORD: startnummer
+    ports:
+      - 127.0.0.1:5432:5432
+    networks:
+      - net
+
+
+  phpmyadmin:
+    image: phpmyadmin:5.2.3
+    networks:
+      - net
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8124:80
+    environment:
+      PMA_USER: root
+      PMA_PASSWORD: password
+      PMA_HOST: 172.20.18.3
+      PMA_PORT: 3306
+      MYSQL_DATABASE: chevereto
+      MYSQL_ROOT_PASSWORD: password
+
+  database:
+    image: mariadb:jammy
+    networks:
+      - net
+    volumes:
+      - ./dev-containers/db:/var/lib/mysql
+    restart: always
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--su-mysql", "--connect"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    ports:
+      - 127.0.0.1:3306:3306
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: chevereto
+      MYSQL_USER: chevereto
+      MYSQL_PASSWORD: user_database_password
+
+  chevereto:
+    image: chevereto/chevereto:4.5.9 # 4.5.7 #latest # tweak with target image to run
+    networks:
+      - net
+    volumes:
+      - ./dev-containers/images:/var/www/html/images/
+      # - ./importing:/var/www/html/importing/
+      - ./dev-containers/import:/var/www/html/importing/parse-users/feleuxens
+      # - app:/var/www/html/ # uncomment when using CHEVERETO_SERVICING=server
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      # - ./customroutes/latestalbums.php:/var/www/html/app/legacy/routes/overrides/latestalbums.php
+    restart: always
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:8115:8080
+    environment:
+      VIRTUAL_HOST: photo.feleuxens.de
+      CHEVERETO_DB_HOST: database
+      CHEVERETO_DB_USER: chevereto
+      CHEVERETO_DB_PASS: user_database_password
+      CHEVERETO_DB_PORT: 3306
+      CHEVERETO_DB_NAME: chevereto
+      CHEVERETO_HOSTNAME: localhost
+      CHEVERETO_HOSTNAME_PATH: /
+      CHEVERETO_HTTPS: 0
+      CHEVERETO_MAX_POST_SIZE: 2G
+      CHEVERETO_MAX_UPLOAD_SIZE: 2G
+      CHEVERETO_HEADER_CLIENT_IP: X-Real-IP
+      CHEVERETO_ENABLE_GUESTS: 0
+      # CHEVERETO_LICENSE_KEY: abc123
+      # CHEVERETO_SERVICING: server # uncomment to enable application filesystem upgrades
+
+#volumes:
+#  database:
+#  storage:
+#  #app: uncomment when using CHEVERETO_SERVICING=server
+
+networks:
+  net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-chevereto
+    enable_ipv6: false
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.18.0/24
