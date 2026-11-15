@@ -40,12 +40,25 @@ its own authentication and proxy configuration. Set `STARTNUMMER_COOKIE_SECURE=1
 when serving through HTTPS.
 
 The worker and API share the database, blob root, and worker secret. Gallery
-credentials belong to the API; the worker command removes the gallery DSN from
-its environment. The worker's private face-session service binds to
-`127.0.0.1:8766`. `--no-faces` disables face inference. `--once` processes one job
-and exits, which also ends any face-review session. Model adapters may download
-weights on first use. The worker's decoded-image cache is limited to 512 MiB by
-default; use `--cache-mb` to change the limit or `--cache-mb 0` to disable it.
+credentials belong to the API; the launcher removes the gallery DSN and integration
+encryption key from the worker environment. The worker's private face-session
+service binds to `127.0.0.1:8766`. `--no-faces` disables face inference. `--once`
+processes one job and exits, which also ends any face-review session.
+
+For each album, the worker starts a separate inference process. That process
+loads the models and keeps decoded photos, embeddings, and native inference
+buffers. It exits before the job is marked complete and face review becomes
+available. The worker receives analysis records plus temporary face boxes and
+match groups; embeddings and decoded pixels never cross the process boundary.
+The queue and review service stays running so other active reviews remain usable.
+
+Models reload for each album, which adds startup time. Weights stay on disk and
+may download on first use. Each inference process has a 512 MiB decoded-image
+cache by default; use `--cache-mb` to change it or `--cache-mb 0` to disable it.
+Cancellation and failed jobs stop the inference process before removing staging
+files. On Linux, an inference child is also killed if its worker dies.
+Process exit releases its CPU/GPU allocations; it does not overwrite physical
+RAM or VRAM.
 
 Finish any active face review before restarting the worker after an update.
 An API restart preserves face data held by the running worker; a worker restart
@@ -72,13 +85,14 @@ precedence. Use `startnummer --env-file /path/to/config.env ...` for another fil
 `start` stays in the foreground without `--detach`. The API listens on
 `127.0.0.1:8000`; the worker's private service listens on `127.0.0.1:8766`.
 `--port`, `--worker-port`, `--cache-mb`, and `--no-faces` configure a launch.
-The worker receives no Chevereto DSN. Ports already in use produce an error;
-the launcher does not adopt or stop services started elsewhere.
+The worker receives neither the Chevereto DSN nor the integration encryption key.
+Ports already in use produce an error; the launcher does not adopt or stop services
+started elsewhere.
 
 `status` reports API readiness, database and storage availability, worker state,
 and the active face-session count. It exits with status 1 until the API is ready
-and the worker is idle or busy. Model loading can delay worker readiness. The
-public `/api/health/live` and `/api/health/ready` endpoints return health checks;
+and the worker is idle or busy. Model loading appears as a job phase; the queue
+service does not load models. The public `/api/health/live` and `/api/health/ready` endpoints return health checks;
 queue counts and settings require login.
 
 The launcher restarts a failed process up to three times. An API restart leaves
@@ -104,7 +118,7 @@ To run the services separately during development, use two terminals:
 
 ```sh
 uv run --no-sync --env-file .env startnummer-api
-uv run --no-sync --env-file .env env -u STARTNUMMER_CHEVERETO_DSN startnummer-worker
+uv run --no-sync --env-file .env env -u STARTNUMMER_CHEVERETO_DSN -u STARTNUMMER_INTEGRATION_KEY startnummer-worker
 ```
 
 ## Administration
@@ -119,8 +133,60 @@ sign-out, and worker shutdown end sessions.
 Settings are versioned in PostgreSQL and included in backups. Concurrent edits
 require reloading the saved settings rather than overwriting another browser's
 changes. Environment values provide defaults until settings are saved through the UI.
-Database connections, credentials, gallery configuration, and filesystem paths
-remain in server configuration.
+Startnummer's database connection, storage paths, and application secrets remain
+in server configuration. Gallery connections support the two modes below.
+
+## Chevereto connection
+
+Open **Administration → Configured integrations** and expand **Chevereto** to inspect
+or test the connection. Integrations start collapsed; their headers show the
+configuration source and state. Collapsing keeps unsaved edits, with pending changes
+or connection errors still indicated in the header. There are two configuration sources:
+
+- If either `STARTNUMMER_CHEVERETO_URL` or `STARTNUMMER_CHEVERETO_DSN` is present,
+  the whole connection is **Managed by environment**. Both values must be set.
+  The page shows the connection fields but cannot edit them. Empty or incomplete
+  environment values produce an error; they never fall back to a saved connection.
+- If both variables are absent, configure the gallery URL, database host, port,
+  database name, username, and password in Administration. Set a separate
+  `STARTNUMMER_INTEGRATION_KEY` on the API server first. Generate a Fernet key with:
+
+  ```sh
+  uv run --no-sync python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+  ```
+
+Remove or comment out both Chevereto variables to use Administration; setting
+those variables to empty strings still selects environment management. The launcher
+loads the key from `.env`. Keep it separate from the session and worker secrets.
+The schema is created by one initial migration, `migrations/versions/initial.py`.
+Its revision remains `0003` so complete pre-release development databases remain
+compatible without a reset or restamp. Fresh databases get all tables in one step;
+new production changes will use subsequent migrations.
+
+**Test connection** checks database access and the supported Chevereto 4.5.9 schema
+using reads only. It does not prove that the database user can update descriptions.
+**Save connection** repeats this check, encrypts the connection with the server key,
+and checks its revision before saving. New gallery operations use the saved values
+without restarting the API. Leave the password field blank to keep the saved
+password. Existing passwords are never returned to the browser.
+
+Environment configuration takes precedence over a saved connection without deleting
+it. Removing the environment configuration activates the saved connection again.
+A missing or incorrect encryption key produces an error rather than using another
+connection. Re-enter the connection with a new key if the original key is lost.
+
+New imports record a gallery identity derived from Chevereto's installation salt.
+The adapter verifies it before reading or writing a description. A database with
+a different identity cannot replace the destination at a URL referenced by saved
+photos. A database clone retaining that salt is treated as the same installation.
+Older batches have no recorded identity: use **Confirm gallery for older batches…**
+after checking that the configured gallery is their original destination. This
+records the association without changing captions, approvals, or gallery descriptions.
+
+Normal backups exclude saved connections and encryption keys. Gallery identity
+bindings are retained, so restored batches keep their destination protection.
+Configure the connection again after restoring. New archives use format 2;
+format 1 archives remain readable.
 
 ## Backup and restore
 
@@ -257,14 +323,17 @@ Signing out also cancels active analysis and clears temporary face data.
 - PostgreSQL stores batches, photo order, job leases, and publication history.
   Rosters and analysis results use versioned Pydantic JSON documents. Temporary
   inference paths are removed before saving.
-- One worker processes album jobs on the app host. Leases and fencing tokens
-  prevent stale workers from saving results. The API process does not load ML
-  runtimes. Run migrations before starting an updated installation.
+- One worker processes album jobs on the app host. Each album runs in a spawned
+  inference process, which exits before review results are published. The API
+  and queue service do not load ML runtimes. Leases and fencing tokens prevent
+  stale workers from saving results. Run migrations before starting an updated
+  installation.
 - With a roster, only exact roster bibs and manual corrections constrain face
   groups or donate bibs to other photos. Unsupported machine reads remain review
   evidence. The face-similarity threshold is unchanged.
-- Face embeddings are released after analysis. Face boxes, match groups, and undo
-  records stay in worker memory during review and expire after one hour by
+- Face embeddings, decoded photos, and retained model buffers are confined to the
+  inference process. Face boxes, match groups, and undo records stay
+  in queue-worker memory during review and expire after one hour by
   default. Finishing review, cancelling analysis, deleting a batch, signing out,
   or stopping the worker clears them. They are never saved to the database or
   photo storage. Saved names and assignment notes survive the face session.
@@ -288,6 +357,27 @@ Chevereto imports support local datefolder, direct, and path image storage.
 External and legacy storage modes produce import errors. Additional galleries,
 exports, roster formats, and cross-album person erasure are outside the current
 implementation.
+
+## Frontend structure
+
+`Workspace.tsx` handles sign-in and screen navigation. `AppShell.tsx` renders the
+sidebar and page header. Import, saved albums, and administration are separate
+screens. Album review lives in `startnummer-web/src/features/review/`:
+
+- `BatchReview.tsx` coordinates the active album, editor, and confirmation dialogs.
+- `PhotoEditor.tsx` owns the unsaved caption and correction draft. Its photo ID and
+  revision key reset the draft when a different saved revision is opened.
+- `ReviewHeader`, `ReviewControls`, `PhotoQueue`, and `PhotoViewer` render the
+  analysis controls, filters, selections, and selected photo.
+- `PublishingHistory.tsx` handles inspection and conditional restore of past writes.
+- `api.ts` names the review requests and uses the generated HTTP client.
+
+`useBatch` refreshes the saved batch and prevents older responses from replacing a
+newer refresh. `useFaceSession` holds temporary face selectors and propagation
+previews in memory and clears them on expiry. Review stays mounted while another
+screen is open so polling and expiry continue; reopening an album starts fresh
+selection state. Face data is not retained in the screen-opening state or browser
+storage. Shared hooks handle request feedback and the unsaved-changes guard.
 
 ## Development checks
 
@@ -330,7 +420,8 @@ when changing the adapter or supported version; SQL success alone does not
 confirm what the gallery displays. This integration check does not measure
 inference accuracy.
 
-The full-album photographer acceptance checklist and remaining backlog decisions
-are in [docs/acceptance.md](docs/acceptance.md). Automated recovery tests include a
-synthetic 93-photo batch with a 262-entry roster; this does not verify real model
-accuracy on the representative photos.
+Automated recovery tests include a synthetic 93-photo batch with a 262-entry
+roster; this does not verify real model accuracy on the representative photos.
+Inference-lifetime tests use synthetic adapters in real subprocesses, including
+retained image buffers, cancellation, abnormal exit, and Linux parent-death cleanup.
+They require no GPU or model downloads.
