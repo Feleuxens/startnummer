@@ -7,7 +7,10 @@ restarting it clears temporary face data.
 
 ## Full-album pass
 
-This pass is still pending. Automated tests use synthetic inputs and fake models.
+The photographer has tested a complete album. Missing disciplines required the
+most manual correction; range assignment now supports those sequences. Results
+for the individual checks below have not been recorded. Automated tests use
+synthetic inputs and fake models.
 
 - [ ] Import the representative album and `test-pictures/entrytable.html`. Check
       exact album membership, the expected 93 originals, and 262 roster entries.
@@ -16,6 +19,9 @@ This pass is still pending. Automated tests use synthetic inputs and fake models
       Record any incorrect bibs, identities, or disciplines separately from app bugs.
 - [ ] Correct a bib, choose a roster athlete, enter a name absent from the roster,
       choose **No event**, and edit a caption. Check each generated caption.
+- [ ] Select a face and search the roster by bib, name, club, and combined terms.
+      Choose a result and save. Searching alone leaves the saved identity unchanged;
+      changing the search keeps a pending selection visible until it is saved.
 - [ ] On a photo without detected subjects, use **Add person from roster** and
       check the generated caption, including a roster entry without a bib.
       Remove an accidental addition and verify that other people remain unchanged.
@@ -35,6 +41,13 @@ This pass is still pending. Automated tests use synthetic inputs and fake models
       and analyze a fresh batch to create a compatible session.
 - [ ] Approve one photo and confirm that other photos remain unapproved. Exercise
       bulk approval, unapproval, filters, and previous/next navigation.
+- [ ] Filter undetermined disciplines, select a sequence using Shift-click or the
+      range controls, and exclude an individual photo. Changing filters clears
+      selection. Explicit No event photos stay out of the undetermined filter.
+- [ ] Assign a discipline absent from the roster. Preview captions, including a
+      manually edited caption and an existing manual discipline, before confirming.
+      Edited captions are kept; changed photos lose approval. A stale revision
+      rejects the entire selection. Check the range controls on a narrow screen.
 - [ ] Finish the face session and reopen the batch. Names and captions must remain;
       face selection and propagation must be unavailable. A worker restart must
       have the same effect on temporary face data without losing saved review work.
@@ -43,6 +56,21 @@ This pass is still pending. Automated tests use synthetic inputs and fake models
 - [ ] Change a local gallery description outside Startnummer. Check that Apply
       reports a conflict. Load the live value, review replacement consent, approve
       again, and retry. Verify that unrelated descriptions remain unchanged.
+
+## Operations checks
+
+- [ ] After finishing face review and stopping manually started services, migrate
+      and start the launcher. Check readiness, model loading, and status. Occupied
+      ports must leave the existing service alone.
+- [ ] Open Administration with the configured account. Save import limits and a
+      session lifetime, then reopen the page. Existing face sessions retain their
+      expiry; new sessions use the saved lifetime.
+- [ ] Create and verify a backup while the app is running. Restore it into an empty
+      database and photo directory, then reopen saved review work. Names, captions,
+      approvals, gallery mappings, and publishing history must remain. Temporary
+      face data must be absent, and unfinished jobs must be cancelled.
+- [ ] Stop the launcher after review. It must stop only managed processes and let
+      an active job finish. Saved batches must reopen after a fresh launch.
 
 ## Automated coverage
 
@@ -54,7 +82,11 @@ This pass is still pending. Automated tests use synthetic inputs and fake models
 | Propagation | Bibless matches, candidate exclusions, tentative-name confirmation, already-named matches, stale revisions, protected manual decisions, saved captions, renewed approvals, session-only undo |
 | Publishing  | Exact conditional SQL, partial outcomes, interrupted-write reconciliation, stale descriptions, renewed replacement consent, conditional restore                                              |
 | Scale       | Synthetic 93-photo batch and 262-entry roster, with worker lease recovery and saved review reopening                                                                                         |
-| Browser     | Desktop/mobile review and propagation, individual/bulk approval scope, navigation, publishing-conflict recovery                                                                              |
+| Review      | Discipline ranges, roster suggestions and overrides, manual captions, approval invalidation, atomic rejection of stale selections, roster search by bib/name/club                            |
+| Startup     | Managed subprocess start/stop, worker restart without API restart, occupied ports, stale PID refusal, worker credential separation                                                           |
+| Backups     | Shared blobs, checksum and path validation, temporary face-data rejection, PostgreSQL consistency with continuing heartbeats, empty destinations, cancelled jobs, uncertain commits          |
+| Settings    | Authentication, ownership, revision checks, import limits, new-session lifetime without changing existing expiry                                                                             |
+| Browser     | Desktop/mobile review, propagation and administration, individual/bulk approval scope, navigation, publishing-conflict recovery                                                              |
 
 PostgreSQL tests use random schemas. MariaDB tests use a separate
 `startnummer_test_*` database. Neither test suite uses the real photo folder or a
@@ -64,10 +96,10 @@ production gallery.
 
 | Issues      | Implementation and remaining work                                                                                                                                                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #1          | Description preview, apply, reconciliation, conflict refresh, and restore are implemented. Full-album rendered-page acceptance remains above.                                                           |
+| #1          | Description preview, apply, reconciliation, conflict refresh, and restore are implemented. Rendered-page checks are listed above.                                                                       |
 | #3, #12     | Saved batches, versioned analysis, stable photo IDs, shared blobs, and cleanup are implemented.                                                                                                         |
 | #5, #6, #15 | Generated client and the four import pairings are implemented. Import displays a busy state; byte-level upload progress and resumable uploads remain separate work.                                     |
-| #7, #8, #18 | Review, corrections, approvals, filters, and session finish are implemented. Cross-album person erasure is deferred.                                                                                    |
+| #7, #8, #18 | Review, corrections, approvals, filters, roster search, bulk discipline assignment, and session finish are implemented. Cross-album person erasure is deferred.                                         |
 | #9          | Confirmed within-batch face-name propagation is implemented. Match groups exist only for the active session.                                                                                            |
 | #10         | Local batch deletion is implemented. Cross-album identity discovery remains deferred.                                                                                                                   |
 | #11, #16    | Durable jobs, leases, progress, cancellation, and bounded recovery are implemented for one worker.                                                                                                      |

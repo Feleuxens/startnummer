@@ -14,41 +14,24 @@ The local test services in `docker-compose.yml` expose PostgreSQL on port 5432,
 MariaDB on 3306, and Chevereto at <http://localhost:8115>.
 
 ```sh
-# API and review UI
-uv sync --extra api
-
-# Include inference when running analysis
 uv sync --extra api --extra worker --extra ocr --extra face
 
 cp .env.example .env
 ```
 
-Set the login password, session secret, and worker secret in `.env`. Use separate
-random values of at least 32 characters for the two secrets. Then migrate the
-database and build the frontend:
+For API and frontend development without local inference, `uv sync --extra api`
+is sufficient. Set the login password, session secret, and worker secret in `.env`.
+Use separate random values of at least 32 characters for the two secrets. Then
+migrate the database and build the frontend:
 
 ```sh
-set -a
-source .env
-set +a
-uv run --no-sync alembic upgrade head
+uv run --no-sync startnummer migrate
 
 cd startnummer-web
 npm ci
 npm run build
 cd ..
 ```
-
-Start the API and worker in separate terminals:
-
-```sh
-uv run --no-sync --env-file .env startnummer-api
-uv run --no-sync --env-file .env env -u STARTNUMMER_CHEVERETO_DSN startnummer-worker
-```
-
-Open <http://127.0.0.1:8000> and sign in with the credentials in `.env`. The API
-serves the built frontend and photo endpoints. API documentation is available
-at `/api/docs`, with OpenAPI at `/api/openapi.json`.
 
 For frontend development, run `npm run dev` in `startnummer-web`. Astro proxies
 `/api` to `http://127.0.0.1:8000`; set `STARTNUMMER_API_URL` to change the target.
@@ -71,6 +54,123 @@ explains why propagation is unavailable. Individual face naming remains usable.
 To get match groups, restart the updated worker and analyze a fresh batch. Keep
 the existing batch to retain its review edits.
 
+## Startup and status
+
+On Linux, start the API and one worker with the launcher:
+
+```sh
+uv run --no-sync startnummer start --detach
+uv run --no-sync startnummer status
+```
+
+Open <http://127.0.0.1:8000> and sign in with the credentials in `.env`. The API
+serves the built frontend and photo endpoints. API documentation is at
+`/api/docs`, with OpenAPI at `/api/openapi.json`.
+
+The commands load `.env` automatically; existing environment variables take
+precedence. Use `startnummer --env-file /path/to/config.env ...` for another file.
+`start` stays in the foreground without `--detach`. The API listens on
+`127.0.0.1:8000`; the worker's private service listens on `127.0.0.1:8766`.
+`--port`, `--worker-port`, `--cache-mb`, and `--no-faces` configure a launch.
+The worker receives no Chevereto DSN. Ports already in use produce an error;
+the launcher does not adopt or stop services started elsewhere.
+
+`status` reports API readiness, database and storage availability, worker state,
+and the active face-session count. It exits with status 1 until the API is ready
+and the worker is idle or busy. Model loading can delay worker readiness. The
+public `/api/health/live` and `/api/health/ready` endpoints return health checks;
+queue counts and settings require login.
+
+The launcher restarts a failed process up to three times. An API restart leaves
+the worker's face sessions intact; a worker restart loses them.
+Detached output goes to `.startnummer/run/launcher.log`. Process state and the
+log stay local; `--run-dir` selects another runtime directory. Before sending a
+stop signal, the command checks the launcher's PID and Linux process start time:
+
+```sh
+uv run --no-sync startnummer stop
+```
+
+The worker finishes its current job before exiting. Stopping it ends temporary
+face sessions. To switch from manually started services, finish active face review,
+stop those processes, then run migrations and start the launcher. Tests use
+separate processes and ports.
+
+Workers can claim different album jobs concurrently, but face review must reach
+the worker holding that batch's temporary session. The launcher runs one worker
+until this routing is implemented. Each album is analyzed as one job.
+
+To run the services separately during development, use two terminals:
+
+```sh
+uv run --no-sync --env-file .env startnummer-api
+uv run --no-sync --env-file .env env -u STARTNUMMER_CHEVERETO_DSN startnummer-worker
+```
+
+## Administration
+
+The configured photographer account has administrator access. Open
+**Administration** to see service status and queue counts, or change the maximum
+photo size, maximum batch size, and face-session lifetime. Import limits apply to
+new imports. Lifetime changes apply to new face sessions; existing sessions keep
+their expiry. The default is one hour. Finishing review, cancellation, deletion,
+sign-out, and worker shutdown end sessions.
+
+Settings are versioned in PostgreSQL and included in backups. Concurrent edits
+require reloading the saved settings rather than overwriting another browser's
+changes. Environment values provide defaults until settings are saved through the UI.
+Database connections, credentials, gallery configuration, and filesystem paths
+remain in server configuration.
+
+## Backup and restore
+
+Create and verify an archive of the configured account's saved records and photos:
+
+```sh
+uv run --no-sync startnummer backup /path/to/backups/startnummer.snbak
+uv run --no-sync startnummer verify-backup /path/to/backups/startnummer.snbak
+```
+
+Use a new filename for each backup; existing archives are not replaced.
+
+PostgreSQL backups can run while services are up. Imports, caption changes,
+settings changes, and cleanup for the account wait while its referenced photo
+bytes are copied. Worker lease heartbeats continue. Unreferenced files and
+incomplete uploads are excluded. SQLite is supported for offline development and
+test restores; use PostgreSQL for the running application.
+
+The versioned archive contains database records, shared photo bytes, and SHA-256
+checksums. Photo IDs, reviewed captions, approvals, jobs, publishing history, and
+administrator settings are retained. Temporary face records, `.env`, credentials,
+model weights, and Chevereto's database are excluded. Archive permissions are
+owner-only. Keep the server configuration separately, including the original
+username, which determines account ownership.
+
+Restore requires an empty database and photo directory, supplied on the command
+line. It verifies the archive, prepares the photo files, migrates the destination,
+and inserts the records in a transaction. To create a recovered copy locally:
+
+```sh
+uv run --no-sync startnummer restore /path/to/backups/startnummer.snbak \
+  --database-url sqlite:////tmp/startnummer-recovered.db \
+  --blob-root /tmp/startnummer-recovered-photos
+```
+
+For PostgreSQL, create a dedicated empty database and pass its connection URL.
+Do not run services against a restore destination until recovery completes. The
+utility rejects existing records, unrelated tables, nonempty photo directories,
+and archives belonging to a different account. For an interrupted restore, use
+another empty destination; prepared photo files are retained if the commit outcome
+is uncertain.
+
+Queued and running jobs are restored as cancelled. Start analysis explicitly if
+needed. Saved review work remains available without face data. Restoring
+Startnummer does not restore or write gallery descriptions. Use **Check gallery
+outcome** to reconcile any publishing operation whose result is uncertain.
+
+If the `startnummer` command is not installed yet,
+`uv run --no-sync python -m startnummer.app.manage ...` runs the same commands.
+
 ## Reviewing a batch
 
 1. Choose **New batch**. Import photos from a configured Chevereto album URL or
@@ -87,6 +187,10 @@ the existing batch to retain its review edits.
    bibs, names, clubs, and disciplines are editable. **No event** explicitly omits
    a discipline. A detected face can be named individually, from the roster or
    with a name absent from it.
+   After selecting a face or subject, use **Search roster athletes** to filter
+   **Assign roster athlete** by name, bib, or club. Search terms can be combined;
+   each result shows all three fields. Choose an athlete and save the correction.
+   Searching alone does not change the assignment.
    If a person was not detected, use **Add person from roster**, search by name,
    bib, or club, and choose **Add to this photo**. This also works before analysis.
    The roster assignment generates a caption suggestion without creating a bib
@@ -127,6 +231,19 @@ photos; publishing filters use the latest operation for each photo.
 Previous/next controls follow the current filter and stop at either end. Leaving
 unsaved edits requires confirmation. Uploaded photos can be reviewed without a
 gallery destination; they cannot be published to an existing image automatically.
+
+For a sequence from the same event, choose **Select photos**. Check individual
+photos, Shift-click to extend a selection, or use **From photo**, **Through photo**,
+and **Select range**. Ranges follow album order within the current filter;
+changing the filter clears the selection. The **Undetermined discipline** filter
+shows analyzed photos without an assigned discipline. Photos marked **No event**
+are excluded.
+Choose **Assign discipline…**, select a discipline, and preview the captions before
+confirming. Roster events appear as suggestions above the full discipline list;
+any listed discipline can be assigned even if absent from the roster. Manually
+edited captions are kept. The preview identifies existing manual disciplines
+that will be replaced, and changed photos lose approval. If any selected photo
+changed since the preview, the whole assignment is rejected; reload and preview again.
 
 Caption saves keep face selection available during the active session.
 **Save review and finish face session** saves the review and removes the extracted
@@ -169,8 +286,8 @@ Signing out also cancels active analysis and clears temporary face data.
 
 Chevereto imports support local datefolder, direct, and path image storage.
 External and legacy storage modes produce import errors. Additional galleries,
-exports, roster formats, and cross-album person erasure are
-outside the current implementation.
+exports, roster formats, and cross-album person erasure are outside the current
+implementation.
 
 ## Development checks
 
@@ -201,9 +318,9 @@ SQL integration tests are opt-in. PostgreSQL tests create and drop a random
 schema. The MariaDB DSN must name a dedicated `startnummer_test_*` database:
 
 ```sh
-STARTNUMMER_TEST_DATABASE_URL="$STARTNUMMER_DATABASE_URL" \
+STARTNUMMER_TEST_DATABASE_URL='postgresql+psycopg://startnummer:startnummer@127.0.0.1:5432/startnummer' \
 STARTNUMMER_TEST_MYSQL_DSN='mysql://root:password@127.0.0.1:3306/startnummer_test_adapter' \
-uv run --no-sync pytest tests/test_database_integration.py
+uv run --no-sync pytest tests/test_database_integration.py tests/test_backup_postgres.py
 ```
 
 Chevereto 4.5.9 has been checked on the local test instance by applying a
