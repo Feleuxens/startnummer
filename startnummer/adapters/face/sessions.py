@@ -31,7 +31,7 @@ def propagation_problem(data: dict) -> str | None:
 class FaceSessions:
     def __init__(self, ttl: int = 3600):
         self.ttl = ttl
-        self._items: dict[tuple[str, str], tuple[float, str, dict, str | None]] = {}
+        self._items: dict[tuple[str, str], tuple[float, str, dict, str | None, float]] = {}
         self._lock = threading.RLock()
         self._undo: dict[tuple[str, str], tuple[str, str, list[dict]]] = {}
 
@@ -48,6 +48,7 @@ class FaceSessions:
                 secrets.token_urlsafe(24),
                 faces,
                 run_id,
+                time.time() + self.ttl,
             )
 
     def _discard(self, key):
@@ -66,7 +67,9 @@ class FaceSessions:
 
     def _prune(self):
         for key, value in list(self._items.items()):
-            if value[0] <= time.monotonic():
+            # A laptop's monotonic clock may pause during suspend. Neither clock
+            # is allowed to extend a face session beyond its original lifetime.
+            if value[0] <= time.monotonic() or value[4] <= time.time():
                 self._discard(key)
 
     def expire(self):
@@ -88,7 +91,7 @@ class FaceSessions:
                 "available": bool(item),
                 "session_id": item[1] if item else None,
                 "photos": deepcopy(item[2]) if item else {},
-                "expires_at": time.time() + max(0, item[0] - time.monotonic()) if item else None,
+                "expires_at": min(item[4], time.time() + max(0, item[0] - time.monotonic())) if item else None,
                 "undo_id": undo[1] if undo else None,
                 "undo_count": len(undo[2]) if undo else 0,
             }

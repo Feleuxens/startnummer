@@ -29,7 +29,14 @@ from startnummer.core.batch import Conflict
 from startnummer.core.enums import Sport
 from startnummer.core.interfaces import EntryList
 from startnummer.core.record import Album
-from tests.inference_fixture import DecodedImage, crashed_models, failed_models, retaining_models
+from tests.inference_fixture import (
+    DecodedImage,
+    blocked_models,
+    crashed_models,
+    failed_models,
+    retaining_models,
+    unavailable_models,
+)
 from tests.test_workflow import Detector, Faces, Ocr, image_bytes, import_batch
 from tests.test_workflow import environment as environment
 
@@ -48,6 +55,45 @@ class RecordingAnalyzer(ProcessAnalyzer):
             on_progress(*values)
 
         return super().__call__(*args, on_progress=progress, **kwargs)
+
+
+def test_safe_configuration_error_reaches_job_without_private_runtime_errors(environment):
+    service, _ = environment
+    batch = import_batch(service)
+    worker = Worker(
+        service.store, service.blobs, service.sessions, analyzer=ProcessAnalyzer(factory=unavailable_models)
+    )
+    service.analyze(batch.album.owner_id, batch.album.id)
+    assert worker.run_once()
+    assert (
+        service.store.jobs(batch.album.owner_id, batch.album.id)[0].error
+        == "CUDA is unavailable; check the device profile"
+    )
+    assert not service.sessions.get(batch.album.owner_id, batch.album.id)["available"]
+
+
+def test_worker_stop_interrupts_inference_and_releases_staging(environment):
+    service, _ = environment
+    batch = import_batch(service)
+    stopped = threading.Event()
+
+    class StoppingAnalyzer(RecordingAnalyzer):
+        def __call__(self, *args, on_progress, **kwargs):
+            def stop_on_progress(*values):
+                stopped.set()
+                on_progress(*values)
+
+            return super().__call__(*args, on_progress=stop_on_progress, **kwargs)
+
+    runner = StoppingAnalyzer(factory=blocked_models)
+    worker = Worker(service.store, service.blobs, service.sessions, analyzer=runner, stopped=stopped)
+    service.analyze(batch.album.owner_id, batch.album.id)
+    assert worker.run_once()
+    assert runner.pids and runner.process is None
+    assert all(process_identity(pid) is None for pid in runner.pids)
+    assert all(not Path(path).exists() for path in runner.paths)
+    assert service.store.jobs(batch.album.owner_id, batch.album.id)[0].state == "queued"
+    assert not service.sessions.get(batch.album.owner_id, batch.album.id)["available"]
 
 
 def test_inference_exits_before_review_and_preserves_other_active_sessions(environment):
@@ -213,3 +259,50 @@ def test_worker_death_terminates_its_inference_child():
         parent.stdout.close()
         if child_pid is not None and child_identity is not None and process_identity(child_pid) == child_identity:
             os.kill(child_pid, signal.SIGKILL)
+
+
+def test_portable_guard_terminates_inference_after_parent_death():
+    parent = subprocess.Popen(
+        [sys.executable, "-m", "tests.parent_guard_fixture"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    watched = {}
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(parent.stdout, selectors.EVENT_READ)
+            assert ready.select(timeout=10)
+        data = json.loads(parent.stdout.readline())
+        watched = {data[key]: process_identity(data[key]) for key in ("inference_pid", "guardian_pid")}
+        assert all(watched.values())
+        parent.kill()
+        parent.wait(timeout=5)
+        deadline = time.monotonic() + 5
+        while (
+            any(process_identity(pid) == identity for pid, identity in watched.items()) and time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        assert all(process_identity(pid) is None for pid in watched)
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=5)
+        parent.stdout.close()
+        for pid, identity in watched.items():
+            if identity is not None and process_identity(pid) == identity:
+                os.kill(pid, signal.SIGKILL)
+
+
+def test_face_session_expires_after_suspend_without_monotonic_progress(monkeypatch):
+    owner, batch = uuid4(), uuid4()
+    sessions = FaceSessions(30)
+    wall, monotonic = time.time(), time.monotonic()
+    monkeypatch.setattr("startnummer.adapters.face.sessions.time.monotonic", lambda: monotonic)
+    monkeypatch.setattr("startnummer.adapters.face.sessions.time.time", lambda: wall)
+    sessions.put(owner, batch, {"synthetic": [{"subject": 0, "box": [0, 0, 1, 1]}]})
+    session = sessions.get(owner, batch)
+    sessions.remember(owner, batch, session["session_id"], [{"synthetic": True}])
+    monkeypatch.setattr("startnummer.adapters.face.sessions.time.time", lambda: wall + 31)
+    assert not sessions.get(owner, batch)["available"]
+    assert not sessions._items and not sessions._undo

@@ -28,6 +28,24 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def test_missing_identity_cannot_authorize_stopping_a_process(tmp_path):
+    (tmp_path / "supervisor.json").write_text(json.dumps({"pid": os.getpid(), "identity": None}))
+    assert read_state(tmp_path) is None
+    with pytest.raises(WorkflowError):
+        stop(tmp_path)
+
+
+def test_portable_process_identity_uses_birth_time(monkeypatch):
+    import psutil
+
+    from startnummer.app import processes
+
+    expected = str(psutil.Process(os.getpid()).create_time())
+    with monkeypatch.context() as patch:
+        patch.setattr(processes.sys, "platform", "darwin")
+        assert processes.process_identity(os.getpid()) == expected
+
+
 def wait_for(predicate, timeout=12):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -74,12 +92,14 @@ def test_supervisor_starts_probes_restarts_only_failed_child_and_stops_own_servi
                 "--run-dir",
                 str(directory),
                 "start",
+                "--backend",
+                "cpu",
                 "--port",
                 str(port),
                 "--worker-port",
                 str(worker_port),
             ],
-            env=env,
+            env={**env, "STARTNUMMER_EXPECT_BACKEND": "cpu", "STARTNUMMER_INFERENCE_BACKEND": "auto"},
             stdout=log,
             stderr=log,
             start_new_session=True,

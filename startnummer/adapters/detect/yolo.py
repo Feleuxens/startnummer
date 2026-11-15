@@ -6,13 +6,14 @@ fallback for that person.
 """
 
 from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
+from startnummer.adapters.runtime import BackendUnavailable
 from startnummer.core.types import BoundingBox, Keypoint, PersonDetection
 
 try:
     import torch
     from ultralytics import YOLO
 except ImportError as exc:  # pragma: no cover - import guard for the worker extra
-    raise ImportError("YoloDetector requires the 'worker' extra (ultralytics)") from exc
+    raise ImportError("YoloDetector requires a device extra: cpu, intel, nvidia, or apple") from exc
 
 # COCO-17 keypoint indices
 _NOSE, _L_EYE, _R_EYE, _L_EAR, _R_EAR = 0, 1, 2, 3, 4
@@ -37,6 +38,7 @@ class YoloDetector:
         min_keypoint_confidence: float = 0.5,
         device: str = "auto",
         cache: ImageCache | None = None,
+        require_coreml_ne: bool = False,
     ) -> None:
         # Weights auto-download on first use (needs network).
         self._model = YOLO(model)
@@ -44,10 +46,27 @@ class YoloDetector:
         self._min_kp = min_keypoint_confidence
         self._device = _resolve_device(device)
         self._cache = cache or DEFAULT_CACHE
+        self._require_coreml_ne = require_coreml_ne
+        if require_coreml_ne:
+            from PIL import Image
+
+            # Check the library's CPU fallback before it sees any album input.
+            with Image.new("RGB", (640, 640)) as blank:
+                self._model(blank, conf=self._min_confidence, device=self._device, verbose=False, save=False)
+            self._verify_coreml()
+
+    def _verify_coreml(self):
+        import coremltools as ct
+
+        native_model = self._model.predictor.model.backend.model
+        if native_model.compute_unit != ct.ComputeUnit.CPU_AND_NE:
+            raise BackendUnavailable("CoreML pose initialization fell back to CPU; use the explicit MPS pose option")
 
     def detect(self, image_path: str) -> list[PersonDetection]:
         image = self._cache.load(image_path)  # BGR; ultralytics accepts arrays directly
         results = self._model(image, conf=self._min_confidence, device=self._device, verbose=False)
+        if self._require_coreml_ne:
+            self._verify_coreml()
         detections: list[PersonDetection] = []
         for result in results:
             keypoints = result.keypoints

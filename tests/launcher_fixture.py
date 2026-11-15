@@ -15,6 +15,8 @@ def main():
     if sys.argv[1:] == ["worker"]:
         assert "STARTNUMMER_CHEVERETO_DSN" not in os.environ
         assert "STARTNUMMER_INTEGRATION_KEY" not in os.environ
+        if expected := os.environ.get("STARTNUMMER_EXPECT_BACKEND"):
+            assert os.environ.get("STARTNUMMER_INFERENCE_BACKEND") == expected
         stopped = threading.Event()
         signal.signal(signal.SIGTERM, lambda *_: stopped.set())
         server = session_server(

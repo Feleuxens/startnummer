@@ -7,11 +7,15 @@ import signal
 import sys
 import time
 from collections.abc import Callable
+from functools import partial
+from pathlib import Path
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
 from startnummer.adapters.cache import DEFAULT_CACHE
+from startnummer.adapters.runtime import Backend, BackendUnavailable
+from startnummer.app.processes import start_parent_guard
 from startnummer.core.batch import WorkflowError
 from startnummer.core.pipeline import analyze_album
 from startnummer.core.record import AnalysisRecord
@@ -80,34 +84,101 @@ class InlineAnalyzer:
             clear_image_caches(self.adapters)
 
 
-def load_models(cache_mb, faces_enabled):
+def preload_gpu_runtime():
+    # Importing PyTorch loads the libraries needed to import the GPU ONNX module.
+    import torch
+
+    if torch.version.cuda is None:
+        raise WorkflowError("GPU inference requires a CUDA-enabled PyTorch build")
+    import onnxruntime
+
+    onnxruntime.preload_dlls(directory="")
+
+
+def load_models(cache_mb, faces_enabled, *, backend="auto"):
     # Native runtimes and their retained buffers belong only to the inference child.
-    from startnummer.adapters.detect.yolo import YoloDetector
-    from startnummer.adapters.ocr.rapid import RapidOcrReader
+    from startnummer.adapters.models import pose_model
+    from startnummer.adapters.runtime import openvino_session, prepare_runtime
 
-    DEFAULT_CACHE.set_max_mb_bytes(cache_mb)
-    faces = None
-    if faces_enabled:
-        from startnummer.adapters.face.insight import InsightFaceEngine
+    root = Path(os.environ.get("STARTNUMMER_MODEL_ROOT", "~/.cache/startnummer/models")).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        runtime = prepare_runtime(backend, root)
+        from startnummer.adapters.detect.yolo import YoloDetector
+        from startnummer.adapters.ocr.rapid import EngineType, RapidOcrReader
 
-        faces = InsightFaceEngine()
-    return YoloDetector(), RapidOcrReader(), faces
+        DEFAULT_CACHE.set_max_mb_bytes(cache_mb)
+        mode = runtime.backend
+        print(f"Loading inference backend: {mode}", flush=True)
+        apple_pose = os.environ.get("STARTNUMMER_APPLE_POSE_DEVICE", "coreml")
+        if mode is Backend.APPLE and apple_pose not in {"coreml", "mps"}:
+            raise BackendUnavailable("STARTNUMMER_APPLE_POSE_DEVICE must be coreml or mps")
+        ocr_params = {"Global.model_root_dir": os.environ.get("STARTNUMMER_OCR_MODEL_ROOT", str(root / "rapidocr"))}
+        if mode is Backend.OPENVINO:
+            ocr_params.update({f"{stage}.engine_type": EngineType.OPENVINO for stage in ("Det", "Cls", "Rec")})
+        if mode is Backend.CUDA:
+            ocr_params["EngineConfig.onnxruntime.use_cuda"] = True
+        if mode is Backend.APPLE:
+            ocr_params.update(
+                {
+                    "EngineConfig.onnxruntime.use_coreml": True,
+                    "EngineConfig.onnxruntime.coreml_ep_cfg.MLComputeUnits": "CPUAndNeuralEngine",
+                    "EngineConfig.onnxruntime.coreml_ep_cfg.ModelCacheDirectory": str(root / "coreml"),
+                }
+            )
+        faces = None
+        if faces_enabled:
+            from startnummer.adapters.face.insight import InsightFaceEngine
+
+            faces = InsightFaceEngine(
+                providers=runtime.providers,
+                session_factory=openvino_session if mode is Backend.OPENVINO else None,
+                root=str(root / ".insightface"),
+            )
+        # CoreML/OpenVINO execute through their own runtimes; preprocessing tensors stay on CPU.
+        device = "cuda" if mode is Backend.CUDA else "cpu"
+        if mode is Backend.APPLE and apple_pose == "mps":
+            import torch
+
+            if not torch.backends.mps.is_available():
+                raise BackendUnavailable("MPS is unavailable; check the native Apple PyTorch installation")
+            model, device = str(root / "yolo11n-pose.pt"), "mps"
+        else:
+            model = pose_model(root, mode)
+        return (
+            YoloDetector(
+                model=model, device=device, require_coreml_ne=mode is Backend.APPLE and apple_pose == "coreml"
+            ),
+            RapidOcrReader(params=ocr_params),
+            faces,
+        )
+    except ImportError:
+        raise BackendUnavailable(
+            "Inference dependencies are missing; sync one device extra: cpu, intel, nvidia, or apple"
+        ) from None
 
 
-def die_with_parent(parent_pid):
+def die_with_parent(parent_pid, lifetime=None):
     if sys.platform == "linux":
         libc = ctypes.CDLL(None, use_errno=True)
         if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
             raise RuntimeError("Could not bind inference lifetime to its worker")
         if os.getppid() != parent_pid:
             os._exit(1)
+        if lifetime is not None:
+            lifetime.close()
+    else:
+        guardian = start_parent_guard(lifetime)
+        if os.getppid() != parent_pid:
+            os._exit(1)
+        return guardian
 
 
-def _child(connection, parent_pid, factory, cache_mb, faces_enabled, album, paths, entry_list):
+def _child(connection, parent_pid, factory, cache_mb, faces_enabled, album, paths, entry_list, *, lifetime=None):
     try:
-        die_with_parent(parent_pid)
         for name in ("STARTNUMMER_CHEVERETO_DSN", "STARTNUMMER_INTEGRATION_KEY"):
             os.environ.pop(name, None)
+        _guardian = die_with_parent(parent_pid, lifetime)  # Keep the helper alive until inference exits.
         adapters = factory(cache_mb, faces_enabled)
         result = InlineAnalyzer(*adapters)(
             album,
@@ -119,17 +190,25 @@ def _child(connection, parent_pid, factory, cache_mb, faces_enabled, album, path
         connection.send(("result", result.model_dump(mode="json")))
     except BaseException as exc:
         try:
-            connection.send(("error", type(exc).__name__))
+            connection.send(
+                ("configuration_error", str(exc))
+                if isinstance(exc, BackendUnavailable)
+                else ("error", type(exc).__name__)
+            )
         except (BrokenPipeError, EOFError, OSError):
             pass
     finally:
         DEFAULT_CACHE.clear()
+        if lifetime is not None:
+            lifetime.close()
         connection.close()
 
 
 class ProcessAnalyzer:
-    def __init__(self, cache_mb=512, faces_enabled=True, *, factory: Callable = load_models):
-        self.cache_mb, self.faces_enabled, self.factory = cache_mb, faces_enabled, factory
+    def __init__(self, cache_mb=512, faces_enabled=True, *, factory: Callable | None = None, backend="auto"):
+        self.backend = Backend(backend)
+        self.cache_mb, self.faces_enabled = cache_mb, faces_enabled
+        self.factory = factory if factory is not None else partial(load_models, backend=self.backend)
         self.process = None
 
     def __call__(self, album, paths, *, entry_list, on_progress):
@@ -137,17 +216,29 @@ class ProcessAnalyzer:
             raise RuntimeError("This analyzer is already running an album")
         context = multiprocessing.get_context("spawn")
         reader, writer = context.Pipe(duplex=False)
+        lifetime, lifetime_writer = context.Pipe(duplex=False)
         process = context.Process(
             target=_child,
-            args=(writer, os.getpid(), self.factory, self.cache_mb, self.faces_enabled, album, paths, entry_list),
+            args=(
+                writer,
+                os.getpid(),
+                self.factory,
+                self.cache_mb,
+                self.faces_enabled,
+                album,
+                paths,
+                entry_list,
+            ),
+            kwargs={"lifetime": lifetime},
         )
         self.process = process
         started = False
-        progress = (0, len(paths), "loading models")
+        progress = (0, len(paths), f"loading models ({self.backend})")
         next_check = 0.0
         try:
             process.start()
             started = True
+            lifetime.close()
             writer.close()
             while True:
                 if reader.poll(0.2):
@@ -161,6 +252,8 @@ class ProcessAnalyzer:
                         next_check = time.monotonic() + 1
                     elif kind == "error":
                         raise WorkflowError("Inference process failed; check model availability and retry")
+                    elif kind == "configuration_error":
+                        raise BackendUnavailable(data)
                     elif kind == "result":
                         result = InferenceResult.model_validate(data)
                         process.join(timeout=5)
@@ -179,14 +272,18 @@ class ProcessAnalyzer:
         finally:
             reader.close()
             writer.close()
-            if started:
-                if process.is_alive():
-                    process.terminate()
-                    process.join(timeout=5)
-                if process.is_alive():
-                    process.kill()
-                    process.join(timeout=5)
-                if process.is_alive():
-                    raise WorkflowError("Inference process could not be stopped")
+            lifetime.close()
+            try:
+                if started:
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=5)
+                    if process.is_alive():
+                        process.kill()
+                        process.join(timeout=5)
+                    if process.is_alive():
+                        raise WorkflowError("Inference process could not be stopped")
+            finally:
+                lifetime_writer.close()
             process.close()
             self.process = None

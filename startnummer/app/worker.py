@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import signal
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,6 +17,7 @@ from sqlalchemy import create_engine
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
+from startnummer.adapters.runtime import Backend, BackendUnavailable
 from startnummer.app.inference import InlineAnalyzer, ProcessAnalyzer
 from startnummer.app.services import Services, run
 from startnummer.core.batch import AnalysisDocument, Conflict, Job, WorkflowError
@@ -25,7 +27,19 @@ from startnummer.core.sports import get
 
 
 class Worker:
-    def __init__(self, store, blobs, sessions, detector=None, ocr=None, faces=None, lease_seconds=90, *, analyzer=None):
+    def __init__(
+        self,
+        store,
+        blobs,
+        sessions,
+        detector=None,
+        ocr=None,
+        faces=None,
+        lease_seconds=90,
+        *,
+        analyzer=None,
+        stopped=None,
+    ):
         self.store, self.blobs, self.sessions = store, blobs, sessions
         if analyzer is not None and any(adapter is not None for adapter in (detector, ocr, faces)):
             raise ValueError("Use either an analyzer or injected adapters")
@@ -33,6 +47,7 @@ class Worker:
             raise ValueError("Provide an analyzer or detector/OCR adapters")
         self.analyzer = analyzer if analyzer is not None else InlineAnalyzer(detector, ocr, faces)
         self.lease_seconds = lease_seconds
+        self.stopped = stopped if stopped is not None else threading.Event()
         self.state = "idle"
 
     def run_once(self) -> bool:
@@ -61,7 +76,9 @@ class Worker:
             self._execute(job, progress, lost)
         except Exception as exc:
             self.sessions.finish(job.owner_id, job.batch_id, run_id=str(job.lease_token))
-            self.store.fail(job, f"Analysis job failed ({type(exc).__name__})")
+            self.store.fail(
+                job, str(exc) if isinstance(exc, BackendUnavailable) else f"Analysis job failed ({type(exc).__name__})"
+            )
         finally:
             stopped.set()
             renewal.join(timeout=5)
@@ -74,7 +91,7 @@ class Worker:
         with TemporaryDirectory(prefix="startnummer-worker-") as directory:
             paths, staged = [], []
             for photo in batch.photos:
-                if lost.is_set():
+                if lost.is_set() or self.stopped.is_set():
                     raise Conflict("Worker lease was lost")
                 try:
                     data = run(self.blobs.read(job.owner_id, photo.blob_key))
@@ -97,7 +114,7 @@ class Worker:
                     )
 
             def on_progress(completed, total, phase):
-                if lost.is_set():
+                if lost.is_set() or self.stopped.is_set():
                     raise Conflict("Worker lease was lost")
                 progress.update(completed=completed + len(batch.photos) - len(staged), phase=phase)
                 if not self.store.heartbeat(job, self.lease_seconds, progress["completed"], phase):
@@ -113,7 +130,7 @@ class Worker:
             for photo, record in zip(staged, records, strict=True):
                 record.source_path = None
                 results[photo.id] = AnalysisDocument(record=record)
-        if lost.is_set():
+        if lost.is_set() or self.stopped.is_set():
             raise Conflict("Worker lease was lost")
 
         _, options = self.store.runtime_settings(job.owner_id)
@@ -131,7 +148,7 @@ class Worker:
         self.store.complete(job, merge)
 
 
-def session_server(sessions: FaceSessions, secret: str, port: int, *, state=None):
+def session_server(sessions: FaceSessions, secret: str, port: int, *, state=None, host="127.0.0.1"):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass  # Never log transient face payloads or authorization headers.
@@ -205,7 +222,7 @@ def session_server(sessions: FaceSessions, secret: str, port: int, *, state=None
         def service_actions(self):
             sessions.expire()
 
-    return Server(("127.0.0.1", port), Handler)
+    return Server((host, port), Handler)
 
 
 def main():
@@ -214,22 +231,45 @@ def main():
         "--once", action="store_true", help="Process one job; face sessions end when this command exits"
     )
     parser.add_argument("--no-faces", action="store_true")
+    parser.add_argument("--check-backend", action="store_true", help="Run synthetic inference without a database")
+    parser.add_argument(
+        "--backend", choices=list(Backend), default=os.environ.get("STARTNUMMER_INFERENCE_BACKEND", "auto")
+    )
     parser.add_argument("--cache-mb", type=int, default=512, help="Maximum decoded-image cache size in MiB")
     args = parser.parse_args()
     if args.cache_mb < 0:
         parser.error("--cache-mb must be nonnegative")
+    if args.check_backend:
+        from startnummer.app.check_backend import check_backend
+
+        try:
+            check_backend(args.backend, args.cache_mb, not args.no_faces)
+        except WorkflowError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(1) from None
+        return
     store = Store(create_engine(os.environ["STARTNUMMER_DATABASE_URL"], pool_pre_ping=True))
     blobs = FilesystemBlobStore.from_env()
     secret = os.environ["STARTNUMMER_WORKER_SECRET"]
     if len(secret) < 32:
         raise ValueError("Worker secret must contain at least 32 characters")
     sessions = FaceSessions(int(os.environ.get("STARTNUMMER_FACE_SESSION_TTL", "3600")))
-    worker = Worker(store, blobs, sessions, analyzer=ProcessAnalyzer(args.cache_mb, not args.no_faces))
+    stopped = threading.Event()
+    worker = Worker(
+        store,
+        blobs,
+        sessions,
+        analyzer=ProcessAnalyzer(args.cache_mb, not args.no_faces, backend=args.backend),
+        stopped=stopped,
+    )
     server = session_server(
-        sessions, secret, int(os.environ.get("STARTNUMMER_WORKER_PORT", "8766")), state=lambda: worker.state
+        sessions,
+        secret,
+        int(os.environ.get("STARTNUMMER_WORKER_PORT", "8766")),
+        state=lambda: worker.state,
+        host=os.environ.get("STARTNUMMER_WORKER_HOST", "127.0.0.1"),
     )
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    stopped = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     try:
         if args.once:

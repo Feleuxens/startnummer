@@ -36,22 +36,50 @@ api = [
     "python-multipart>=0.0.20,<1",
     "python-dotenv==1.2.2",
     "cryptography==49.0.0",
+    "psutil==7.2.2",
 ]
 
-# Analysis worker. Add the ocr and face extras for inference.
+# Queue/review service. Select one device extra to run inference.
 worker = [
     "startnummer[db]",
     "beautifulsoup4==4.15.0",
-    # numpy pinned because of paddleocr's requirement
-    "numpy==2.3.5",
-    "pdfplumber==0.11.10",
     "pillow==12.3.0",
-    "opencv-python-headless==5.0.0.93",
+    "httpx==0.28.1",
+    "psutil==7.2.2",
+]
+
+# Shared model adapters; device extras supply exactly one ONNX Runtime.
+model-common = [
+    "startnummer[worker]",
+    "numpy==2.3.5",
+    "opencv-python==4.13.0.92",
     "ultralytics==8.4.87",
     "torch==2.12.1",
-    "httpx==0.28.1",
-    "pymysql==1.2.0",
+    "torchvision==0.27.1",
+    "rapidocr==3.9.1",
+    "insightface==1.0.1",
 ]
+cpu = ["startnummer[model-common]", "torch==2.12.1", "torchvision==0.27.1", "onnxruntime==1.27.0"]
+intel = [
+    "startnummer[model-common]",
+    "torch==2.12.1",
+    "torchvision==0.27.1",
+    "onnxruntime==1.27.0",
+    "openvino==2026.4.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+nvidia = [
+    "startnummer[model-common]",
+    "onnxruntime-gpu==1.27.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+apple = [
+    "startnummer[model-common]",
+    "onnxruntime==1.27.0",
+    "coremltools==9.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+
+# Compatibility aliases. New installations should select a device explicitly.
+inference = ["startnummer[cpu]"]
+face = ["startnummer[cpu]"]
 
 # Bib-number OCR
 ocr = [
@@ -59,14 +87,6 @@ ocr = [
     "paddlepaddle==3.2.2",
     "rapidocr==3.9.1",
     "rapidocr-onnxruntime==1.4.4",
-]
-
-# Face detection + ArcFace embeddings.
-face = [
-    "insightface==1.0.1",
-    "onnxruntime==1.27.0",
-    "onnxruntime-gpu==1.27.0",
-    "numpy",
 ]
 
 # Optional vision-language model dependencies.
@@ -116,3 +136,32 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+environments = [
+    "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+conflicts = [[{extra = "cpu"}, {extra = "intel"}, {extra = "nvidia"}, {extra = "apple"}]]
+
+# InsightFace names the CPU distribution although both wheels provide onnxruntime.
+# The device extras supply the runtime; keep this metadata tied to the pinned version.
+[[tool.uv.dependency-metadata]]
+name = "insightface"
+version = "1.0.1"
+requires-dist = ["numpy", "onnx", "opencv-python", "requests", "scikit-image", "scipy", "tqdm"]
+
+[tool.uv.sources]
+torch = [
+    {index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'"},
+    {index = "pytorch-cpu", extra = "intel", marker = "sys_platform == 'linux'"},
+]
+torchvision = [
+    {index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'"},
+    {index = "pytorch-cpu", extra = "intel", marker = "sys_platform == 'linux'"},
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

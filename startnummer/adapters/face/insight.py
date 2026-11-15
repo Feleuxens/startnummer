@@ -8,6 +8,7 @@ Uses CUDA when available, with CPU as a fallback.
 """
 
 from startnummer.adapters.cache import DEFAULT_CACHE, ImageCache
+from startnummer.adapters.runtime import BackendUnavailable
 from startnummer.core.types import BoundingBox, FaceDetection
 
 try:
@@ -15,7 +16,7 @@ try:
     import onnxruntime
     from insightface.app import FaceAnalysis
 except ImportError as exc:  # pragma: no cover - import guard for the face extra
-    raise ImportError("InsightFaceEngine requires the 'face' extra (insightface, onnxruntime)") from exc
+    raise ImportError("InsightFaceEngine requires a device extra: cpu, intel, nvidia, or apple") from exc
 
 _PREFERRED_PROVIDERS = ["CUDAExecutionProvider", "CPUExecutionProvider"]
 _DUPLICATE_IOU = 0.5  # two detections overlapping this much are the same face
@@ -45,13 +46,27 @@ class InsightFaceEngine:
         det_size: tuple[int, int] = (960, 960),  # both dimensions must be divisible by 32
         min_face_height: int = 80,  # px in the original image; 0 disables the gate
         cache: ImageCache | None = None,
+        providers: list | None = None,
+        session_factory=None,
+        root: str | None = None,
     ) -> None:
         self._app = FaceAnalysis(
             name=model,
             allowed_modules=["detection", "recognition"],
-            providers=_available_providers(),
+            providers=providers if providers is not None else _available_providers(),
+            **({"root": root} if root else {}),
         )
+        if session_factory is not None:
+            # InsightFace's loader drops SessionOptions, so replace sessions before preparation.
+            for model in self._app.models.values():
+                model.session = session_factory(model.model_file)
         self._app.prepare(ctx_id=0, det_size=det_size)
+        if providers:
+            expected = providers[0][0] if isinstance(providers[0], tuple) else providers[0]
+            if expected != "CPUExecutionProvider" and any(
+                expected not in model.session.get_providers() for model in self._app.models.values()
+            ):
+                raise BackendUnavailable("The requested face inference provider failed to initialize")
         self._min_confidence = min_confidence
         self._min_face_height = min_face_height
         self._cache = cache or DEFAULT_CACHE

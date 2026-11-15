@@ -6,6 +6,7 @@ import time
 from uuid import uuid4
 
 from startnummer.adapters.cache import DEFAULT_CACHE
+from startnummer.adapters.runtime import BackendUnavailable
 from startnummer.app.inference import ProcessAnalyzer
 from startnummer.core.enums import Sport
 from startnummer.core.interfaces import EntryList
@@ -46,6 +47,10 @@ def retaining_models(cache_mb, faces_enabled):
 
 def failed_models(*args):
     raise RuntimeError("synthetic-private-data-must-not-leave-the-child")
+
+
+def unavailable_models(*args):
+    raise BackendUnavailable("CUDA is unavailable; check the device profile")
 
 
 def crashed_models(*args):

@@ -23,6 +23,7 @@ from sqlalchemy import create_engine
 from startnummer.adapters.db.store import Store
 from startnummer.app.backup import backup, inspect_backup, restore
 from startnummer.app.operations import database_healthy, worker_health
+from startnummer.app.processes import process_identity
 from startnummer.app.settings import Settings
 from startnummer.core.batch import WorkflowError, now
 
@@ -37,20 +38,10 @@ def migrate(engine):
         command.upgrade(config, "head")
 
 
-def process_identity(pid):
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        if stat[0] == "Z":
-            return None
-        return stat[19]  # Linux process start time, to reject reused PIDs.
-    except (OSError, IndexError):
-        return None
-
-
 def read_state(directory):
     try:
         state = json.loads((directory / "supervisor.json").read_text())
-        return state if process_identity(state["pid"]) == state["identity"] else None
+        return state if state["identity"] is not None and process_identity(state["pid"]) == state["identity"] else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -155,6 +146,9 @@ def supervise(args, settings, *, commands=None):
             for key, value in environment.items()
             if key not in {"STARTNUMMER_CHEVERETO_DSN", "STARTNUMMER_INTEGRATION_KEY"}
         }
+        worker_environment["STARTNUMMER_INFERENCE_BACKEND"] = args.backend or os.environ.get(
+            "STARTNUMMER_INFERENCE_BACKEND", "auto"
+        )
         commands = commands or child_commands(args.port, args.cache_mb, args.no_faces)
         stopped = threading.Event()
         previous = {sig: signal.signal(sig, lambda *_: stopped.set()) for sig in (signal.SIGTERM, signal.SIGINT)}
@@ -229,6 +223,8 @@ def start(args, settings):
     ]
     if args.no_faces:
         command_line.append("--no-faces")
+    if args.backend is not None:
+        command_line.extend(["--backend", args.backend])
     descriptor = os.open(args.run_dir / "launcher.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(descriptor, "ab") as log:
         process = subprocess.Popen(command_line, cwd=ROOT, stdout=log, stderr=log, start_new_session=True)
@@ -247,7 +243,7 @@ def stop(directory):
     if state is None:
         raise WorkflowError("No matching managed launcher is running; external services were left alone")
     os.kill(state["pid"], signal.SIGTERM)
-    print("Stop requested. The worker finishes its current job, then exits and clears temporary face sessions.")
+    print("Stop requested. The worker interrupts analysis and clears temporary face sessions.")
 
 
 def parser():
@@ -260,6 +256,7 @@ def parser():
     launch.add_argument("--worker-port", type=int)
     launch.add_argument("--cache-mb", type=int, default=512)
     launch.add_argument("--no-faces", action="store_true")
+    launch.add_argument("--backend", choices=("auto", "cpu", "openvino", "cuda", "apple"))
     launch.add_argument("--detach", action="store_true")
     check = sub.add_parser("status")
     check.add_argument("--port", type=int, default=8000, help="API port for services started without the launcher")
