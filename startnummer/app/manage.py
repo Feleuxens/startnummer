@@ -173,7 +173,7 @@ def supervise(args, settings, *, commands=None):
                     cmd, cwd=ROOT, env=worker_environment if name == "worker" else environment
                 )
             record_children()
-            print(f"Started API at {state['api_url']}; worker may take time to load its models.", flush=True)
+            print(f"Started API at {state['api_url']}; worker loads models separately for each album.", flush=True)
             while not stopped.wait(0.5):
                 for name, child in list(children.items()):
                     if child.poll() is None:

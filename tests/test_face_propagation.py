@@ -587,5 +587,7 @@ def test_missing_groups_in_current_worker_are_not_reported_as_zero_matches(envir
     for faces in data["photos"].values():
         for face in faces:
             face.pop("group")
+    service.sessions.put(batch.album.owner_id, batch.album.id, data["photos"])
+    request.face_session_id = service.sessions.get(batch.album.owner_id, batch.album.id)["session_id"]
     with pytest.raises(Conflict, match="Face match groups are missing"):
         service.preview_propagation(batch.album.owner_id, batch.album.id, request)

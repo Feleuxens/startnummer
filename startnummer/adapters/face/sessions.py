@@ -38,22 +38,36 @@ class FaceSessions:
     def put(self, owner_id: UUID, batch_id: UUID, faces: dict, *, run_id: str | None = None) -> None:
         with self._lock:
             self._prune()
-            self._undo.pop((str(owner_id), str(batch_id)), None)
+            key = (str(owner_id), str(batch_id))
+            faces = deepcopy(faces)
+            self._discard(key)
             if not faces:
-                self._items.pop((str(owner_id), str(batch_id)), None)
                 return
-            self._items[(str(owner_id), str(batch_id))] = (
+            self._items[key] = (
                 time.monotonic() + self.ttl,
                 secrets.token_urlsafe(24),
                 faces,
                 run_id,
             )
 
+    def _discard(self, key):
+        item = self._items.pop(key, None)
+        if item:
+            item[2].clear()
+        undo = self._undo.pop(key, None)
+        if undo:
+            undo[2].clear()
+
+    def clear(self):
+        with self._lock:
+            for key in list(self._items):
+                self._discard(key)
+            self._undo.clear()
+
     def _prune(self):
         for key, value in list(self._items.items()):
             if value[0] <= time.monotonic():
-                del self._items[key]
-                self._undo.pop(key, None)
+                self._discard(key)
 
     def expire(self):
         with self._lock:
@@ -73,7 +87,7 @@ class FaceSessions:
                 "protocol_version": FACE_SESSION_PROTOCOL,
                 "available": bool(item),
                 "session_id": item[1] if item else None,
-                "photos": item[2] if item else {},
+                "photos": deepcopy(item[2]) if item else {},
                 "expires_at": time.time() + max(0, item[0] - time.monotonic()) if item else None,
                 "undo_id": undo[1] if undo else None,
                 "undo_count": len(undo[2]) if undo else 0,
@@ -84,8 +98,7 @@ class FaceSessions:
             key = (str(owner_id), str(batch_id))
             item = self._items.get(key)
             if item and (run_id is None or item[3] == run_id):
-                del self._items[key]
-                self._undo.pop(key, None)
+                self._discard(key)
 
     def remember(self, owner_id, batch_id, session_id, changes):
         with self._lock:
@@ -94,6 +107,9 @@ class FaceSessions:
             item = self._items.get(key)
             if item is None or item[1] != session_id:
                 raise Conflict("Face session expired; undo is unavailable")
+            previous = self._undo.pop(key, None)
+            if previous:
+                previous[2].clear()
             undo_id = secrets.token_urlsafe(24)
             self._undo[key] = (session_id, undo_id, deepcopy(changes))
             return undo_id
@@ -105,9 +121,11 @@ class FaceSessions:
             item = self._undo.get(key)
             if item is None or item[:2] != (session_id, undo_id):
                 raise Conflict("Undo expired or a newer name assignment replaced it")
+            changes = deepcopy(item[2])
             if consume:
                 del self._undo[key]
-            return deepcopy(item[2])
+                item[2].clear()
+            return changes
 
     def validate(self, owner_id: UUID, batch_id: UUID, photo_id: UUID, subject: int, session_id: str) -> None:
         data = self.get(owner_id, batch_id)

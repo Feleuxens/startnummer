@@ -9,25 +9,29 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import create_engine
 
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
+from startnummer.app.inference import InlineAnalyzer, ProcessAnalyzer
 from startnummer.app.services import Services, run
 from startnummer.core.batch import AnalysisDocument, Conflict, Job, WorkflowError
 from startnummer.core.enums import Status
-from startnummer.core.pipeline import analyze_album
 from startnummer.core.record import AnalysisRecord
 from startnummer.core.sports import get
 
 
 class Worker:
-    def __init__(self, store, blobs, sessions, detector, ocr, faces=None, lease_seconds=90):
+    def __init__(self, store, blobs, sessions, detector=None, ocr=None, faces=None, lease_seconds=90, *, analyzer=None):
         self.store, self.blobs, self.sessions = store, blobs, sessions
-        self.detector, self.ocr, self.faces = detector, ocr, faces
+        if analyzer is not None and any(adapter is not None for adapter in (detector, ocr, faces)):
+            raise ValueError("Use either an analyzer or injected adapters")
+        if analyzer is None and (detector is None or ocr is None):
+            raise ValueError("Provide an analyzer or detector/OCR adapters")
+        self.analyzer = analyzer if analyzer is not None else InlineAnalyzer(detector, ocr, faces)
         self.lease_seconds = lease_seconds
         self.state = "idle"
 
@@ -66,7 +70,7 @@ class Worker:
 
     def _execute(self, job: Job, progress, lost):
         batch = self.store.get(job.owner_id, job.batch_id)
-        results, geometry, match_groups = {}, {}, {}
+        results, geometry = {}, {}
         with TemporaryDirectory(prefix="startnummer-worker-") as directory:
             paths, staged = [], []
             for photo in batch.photos:
@@ -100,34 +104,12 @@ class Worker:
                     lost.set()
                     raise Conflict("Worker lease was lost")
 
-            def on_faces(photo_index, subject_index, detections):
-                photo = staged[photo_index]
-                geometry.setdefault(str(photo.id), []).extend(
-                    {
-                        "subject": subject_index,
-                        "box": list(face.box),
-                        "group": match_groups.get((photo_index, subject_index)),
-                    }
-                    for face in detections
-                )
-
-            def on_face_groups(groups):
-                for group in groups:
-                    group_id = str(uuid4())
-                    for key in group:
-                        match_groups[key] = group_id
-
-            records = analyze_album(
-                batch.album,
-                paths,
-                detector=self.detector,
-                ocr=self.ocr,
-                faces=self.faces,
-                entry_list=batch.roster,
-                on_progress=on_progress,
-                on_faces=on_faces,
-                on_face_groups=on_face_groups,
-            )
+            output = self.analyzer(batch.album, paths, entry_list=batch.roster, on_progress=on_progress)
+            geometry = {
+                str(staged[index].id): [face.model_dump(mode="json") for face in values]
+                for index, values in output.geometry.items()
+            }
+            records = output.records
             for photo, record in zip(staged, records, strict=True):
                 record.source_path = None
                 results[photo.id] = AnalysisDocument(record=record)
@@ -236,25 +218,13 @@ def main():
     args = parser.parse_args()
     if args.cache_mb < 0:
         parser.error("--cache-mb must be nonnegative")
-    # Load ML runtimes only in the worker process.
-    from startnummer.adapters.cache import DEFAULT_CACHE
-    from startnummer.adapters.detect.yolo import YoloDetector
-    from startnummer.adapters.ocr.rapid import RapidOcrReader
-
-    DEFAULT_CACHE.set_max_mb_bytes(args.cache_mb)
-
     store = Store(create_engine(os.environ["STARTNUMMER_DATABASE_URL"], pool_pre_ping=True))
     blobs = FilesystemBlobStore.from_env()
     secret = os.environ["STARTNUMMER_WORKER_SECRET"]
     if len(secret) < 32:
         raise ValueError("Worker secret must contain at least 32 characters")
     sessions = FaceSessions(int(os.environ.get("STARTNUMMER_FACE_SESSION_TTL", "3600")))
-    faces = None
-    if not args.no_faces:
-        from startnummer.adapters.face.insight import InsightFaceEngine
-
-        faces = InsightFaceEngine()
-    worker = Worker(store, blobs, sessions, YoloDetector(), RapidOcrReader(), faces)
+    worker = Worker(store, blobs, sessions, analyzer=ProcessAnalyzer(args.cache_mb, not args.no_faces))
     server = session_server(
         sessions, secret, int(os.environ.get("STARTNUMMER_WORKER_PORT", "8766")), state=lambda: worker.state
     )
@@ -273,6 +243,7 @@ def main():
     finally:
         server.shutdown()
         server.server_close()
+        sessions.clear()
 
 
 if __name__ == "__main__":

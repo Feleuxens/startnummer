@@ -27,6 +27,7 @@ class ImageCache:
         self._decode = decode
         self._entries: OrderedDict[str, object] = OrderedDict()
         self._total = 0
+        self._generation = 0
         self._lock = threading.Lock()
         self.hits = 0
         self.misses = 0
@@ -34,6 +35,7 @@ class ImageCache:
     def load(self, path: str):
         key = os.path.abspath(path)
         with self._lock:
+            generation = self._generation
             cached = self._entries.get(key)
             if cached is not None:
                 self._entries.move_to_end(key)
@@ -47,8 +49,8 @@ class ImageCache:
 
         with self._lock:
             self.misses += 1
-            if size > self._max_bytes:
-                return image  # larger than the whole budget: serve uncached
+            if generation != self._generation or size > self._max_bytes:
+                return image  # Do not retain an old decode or an image larger than the budget.
             if key not in self._entries:
                 self._entries[key] = image
                 self._total += size
@@ -66,6 +68,7 @@ class ImageCache:
 
     def clear(self) -> None:
         with self._lock:
+            self._generation += 1
             self._entries.clear()
             self._total = 0
 
