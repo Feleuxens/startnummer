@@ -18,7 +18,8 @@ from startnummer.adapters.db.store import Store
 from startnummer.core.batch import Conflict, WorkflowError, now
 
 CHUNK = 1024 * 1024
-FORMAT = 1
+FORMAT = 2
+BACKUP_TABLES = tuple(table for table in Base.metadata.sorted_tables if table.name != "sn_integrations")
 
 
 def reject_face_data(value):
@@ -73,7 +74,7 @@ def backup(store, settings, destination: Path):
         ):
             with store.transaction(settings.owner_id) as session:
                 tables = {}
-                for table in Base.metadata.sorted_tables:
+                for table in BACKUP_TABLES:
                     rows = session.execute(select(table).where(table.c.owner_id == settings.owner_id)).mappings()
                     tables[table.name] = [dict(row) for row in rows]
                 reject_face_data(tables)
@@ -133,7 +134,7 @@ def validate_archive(archive):
     if len(names) != len(set(names)) or archive.getinfo("manifest.json").file_size > 16 * CHUNK:
         raise WorkflowError("Invalid backup manifest")
     manifest = json.loads(archive.read("manifest.json"))
-    if manifest["format"] != FORMAT:
+    if manifest["format"] not in {1, FORMAT}:
         raise WorkflowError("Unsupported backup format")
     owner = UUID(manifest["owner_id"])
     files = manifest["files"]
@@ -155,13 +156,15 @@ def validate_archive(archive):
         raise WorkflowError("Backup metadata exceeds the supported size")
     document = json.loads(archive.read("database.json"))
     reject_face_data(document)
-    if set(document["tables"]) != set(Base.metadata.tables):
-        raise WorkflowError("Backup schema is incompatible with this version of Startnummer")
     tables = document["tables"]
+    if manifest["format"] == 1:
+        tables.setdefault("sn_gallery_bindings", [])
+    if set(tables) != {table.name for table in BACKUP_TABLES}:
+        raise WorkflowError("Backup schema is incompatible with this version of Startnummer")
     if manifest["batches"] != len(tables["sn_batches"]) or manifest["photos"] != len(tables["sn_photos"]):
         raise WorkflowError("Backup counts do not match its records")
     references = {"database.json"}
-    for table in Base.metadata.sorted_tables:
+    for table in BACKUP_TABLES:
         for row in tables[table.name]:
             if set(row) != set(table.c.keys()) or UUID(row["owner_id"]) != owner:
                 raise WorkflowError("Backup records have invalid columns or ownership")
@@ -179,6 +182,7 @@ def validate_archive(archive):
     if references != set(files):
         raise WorkflowError("Backup contains unreferenced photo bytes")
     summary = {key: value for key, value in manifest.items() if key != "files"}
+    tables["sn_integrations"] = []
     return summary, tables, files
 
 

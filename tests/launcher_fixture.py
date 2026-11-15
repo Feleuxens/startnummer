@@ -14,6 +14,7 @@ from startnummer.app.worker import session_server
 def main():
     if sys.argv[1:] == ["worker"]:
         assert "STARTNUMMER_CHEVERETO_DSN" not in os.environ
+        assert "STARTNUMMER_INTEGRATION_KEY" not in os.environ
         stopped = threading.Event()
         signal.signal(signal.SIGTERM, lambda *_: stopped.set())
         server = session_server(

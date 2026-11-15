@@ -1,9 +1,10 @@
-"""Saved batches, stable photo entries, leased jobs, and publishing journal."""
+"""Initial Startnummer schema: batches, jobs, settings, and integrations."""
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0001"
+# Preserve the complete pre-release schema's revision for existing development databases.
+revision = "0003"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -68,8 +69,36 @@ def upgrade():
     )
     for column in ("owner_id", "batch_id"):
         op.create_index("ix_sn_publications_" + column, "sn_publications", [column])
+    op.create_table(
+        "sn_settings",
+        sa.Column("owner_id", sa.Uuid(), primary_key=True),
+        sa.Column("revision", sa.Integer(), nullable=False),
+        sa.Column("document", sa.JSON(), nullable=False),
+    )
+    op.create_table(
+        "sn_integrations",
+        sa.Column("owner_id", sa.Uuid(), primary_key=True),
+        sa.Column("revision", sa.Integer(), nullable=False),
+        sa.Column("credentials", sa.Text(), nullable=False),
+    )
+    op.create_table(
+        "sn_gallery_bindings",
+        sa.Column("owner_id", sa.Uuid(), primary_key=True),
+        sa.Column("url", sa.String(2048), primary_key=True),
+        sa.Column("identity", sa.String(64), nullable=False),
+        sa.Column("legacy_confirmed", sa.Boolean(), nullable=False),
+    )
 
 
 def downgrade():
-    for table in ("sn_publications", "sn_jobs", "sn_photos", "sn_batches", "sn_blob_garbage"):
+    for table in (
+        "sn_gallery_bindings",
+        "sn_integrations",
+        "sn_settings",
+        "sn_publications",
+        "sn_jobs",
+        "sn_photos",
+        "sn_batches",
+        "sn_blob_garbage",
+    ):
         op.drop_table(table)

@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -16,6 +16,21 @@ class SettingsRow(Base):
     owner_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     revision: Mapped[int] = mapped_column(Integer)
     document: Mapped[dict] = mapped_column(JSON)
+
+
+class IntegrationRow(Base):
+    __tablename__ = "sn_integrations"
+    owner_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    credentials: Mapped[str] = mapped_column(Text)
+
+
+class GalleryBindingRow(Base):
+    __tablename__ = "sn_gallery_bindings"
+    owner_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    url: Mapped[str] = mapped_column(String(2048), primary_key=True)
+    identity: Mapped[str] = mapped_column(String(64))
+    legacy_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class BatchRow(Base):

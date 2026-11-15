@@ -38,6 +38,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/integrations/chevereto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Integration Status */
+        get: operations["integration_status_api_admin_integrations_chevereto_get"];
+        /** Save Integration */
+        put: operations["save_integration_api_admin_integrations_chevereto_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/integrations/chevereto/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Integration */
+        post: operations["test_integration_api_admin_integrations_chevereto_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/integrations/chevereto/confirm-legacy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Legacy */
+        post: operations["confirm_legacy_api_admin_integrations_chevereto_confirm_legacy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session": {
         parameters: {
             query?: never;
@@ -679,6 +731,29 @@ export interface components {
             display_name: string;
             change: components["schemas"]["DescriptionWrite"];
         };
+        /** CheveretoConnection */
+        CheveretoConnection: {
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Url */
+            url: string;
+            /** Host */
+            host: string;
+            /**
+             * Port
+             * @default 3306
+             */
+            port: number;
+            /** Database */
+            database: string;
+            /** Username */
+            username: string;
+            /** Password */
+            password?: string | null;
+        };
         /** Confident[Athlete] */
         Confident_Athlete_: {
             value: components["schemas"]["Athlete"];
@@ -716,6 +791,16 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** ConnectionTest */
+        ConnectionTest: {
+            /** Version */
+            version: string;
+            /**
+             * Message
+             * @default Connection and Chevereto 4.5.9 schema verified. No descriptions were written.
+             */
+            message: string;
+        };
         /** DescriptionWrite */
         DescriptionWrite: {
             destination: components["schemas"]["Destination"];
@@ -732,6 +817,8 @@ export interface components {
             image_id: number;
             /** Page Url */
             page_url: string;
+            /** Gallery Identity */
+            gallery_identity?: string | null;
         };
         /** DisciplineAssignment */
         DisciplineAssignment: {
@@ -877,6 +964,78 @@ export interface components {
              */
             sport: "handball";
             discipline?: components["schemas"]["Confident_HandballDiscipline_"] | null;
+        };
+        /** IntegrationRevision */
+        IntegrationRevision: {
+            /** Revision */
+            revision: number;
+        };
+        /** IntegrationStatus */
+        IntegrationStatus: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "environment" | "administration";
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /**
+             * Configured
+             * @default false
+             */
+            configured: boolean;
+            /**
+             * Editable
+             * @default false
+             */
+            editable: boolean;
+            /** Url */
+            url?: string | null;
+            /**
+             * Host
+             * @default
+             */
+            host: string;
+            /**
+             * Port
+             * @default 3306
+             */
+            port: number;
+            /**
+             * Database
+             * @default
+             */
+            database: string;
+            /**
+             * Username
+             * @default
+             */
+            username: string;
+            /**
+             * Password Set
+             * @default false
+             */
+            password_set: boolean;
+            /**
+             * Encryption Ready
+             * @default false
+             */
+            encryption_ready: boolean;
+            /** Error */
+            error?: string | null;
+            /**
+             * Legacy Photos
+             * @default 0
+             */
+            legacy_photos: number;
+            /**
+             * Legacy Confirmed
+             * @default false
+             */
+            legacy_confirmed: boolean;
         };
         /** Job */
         Job: {
@@ -1291,6 +1450,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RuntimeSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    integration_status_api_admin_integrations_chevereto_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationStatus"];
+                };
+            };
+        };
+    };
+    save_integration_api_admin_integrations_chevereto_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheveretoConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_integration_api_admin_integrations_chevereto_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CheveretoConnection"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_legacy_api_admin_integrations_chevereto_confirm_legacy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationStatus"];
                 };
             };
             /** @description Validation Error */

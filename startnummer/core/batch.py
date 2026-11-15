@@ -38,6 +38,7 @@ class Destination(BaseModel):
     instance: str
     image_id: int = Field(gt=0)
     page_url: str
+    gallery_identity: str | None = None
 
 
 class Photo(BaseModel):

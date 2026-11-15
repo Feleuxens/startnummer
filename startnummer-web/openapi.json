@@ -61,6 +61,143 @@
         }
       }
     },
+    "/api/admin/integrations/chevereto": {
+      "get": {
+        "summary": "Integration Status",
+        "operationId": "integration_status_api_admin_integrations_chevereto_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Save Integration",
+        "operationId": "save_integration_api_admin_integrations_chevereto_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheveretoConnection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/integrations/chevereto/test": {
+      "post": {
+        "summary": "Test Integration",
+        "operationId": "test_integration_api_admin_integrations_chevereto_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CheveretoConnection"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionTest"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/integrations/chevereto/confirm-legacy": {
+      "post": {
+        "summary": "Confirm Legacy",
+        "operationId": "confirm_legacy_api_admin_integrations_chevereto_confirm_legacy_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationRevision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/session": {
       "get": {
         "summary": "Session Info",
@@ -1959,6 +2096,69 @@
         ],
         "title": "ChangePreview"
       },
+      "CheveretoConnection": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 3306
+          },
+          "database": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Database"
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "url",
+          "host",
+          "database",
+          "username"
+        ],
+        "title": "CheveretoConnection"
+      },
       "Confident_Athlete_": {
         "properties": {
           "value": {
@@ -2096,6 +2296,24 @@
         ],
         "title": "Confident[str]"
       },
+      "ConnectionTest": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "Connection and Chevereto 4.5.9 schema verified. No descriptions were written."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "ConnectionTest"
+      },
       "DescriptionWrite": {
         "properties": {
           "destination": {
@@ -2146,6 +2364,17 @@
           "page_url": {
             "type": "string",
             "title": "Page Url"
+          },
+          "gallery_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gallery Identity"
           }
         },
         "type": "object",
@@ -2615,6 +2844,115 @@
         },
         "type": "object",
         "title": "HandballEvent"
+      },
+      "IntegrationRevision": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "IntegrationRevision"
+      },
+      "IntegrationStatus": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "environment",
+              "administration"
+            ],
+            "title": "Source"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "default": 0
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured",
+            "default": false
+          },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable",
+            "default": false
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "default": ""
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port",
+            "default": 3306
+          },
+          "database": {
+            "type": "string",
+            "title": "Database",
+            "default": ""
+          },
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "default": ""
+          },
+          "password_set": {
+            "type": "boolean",
+            "title": "Password Set",
+            "default": false
+          },
+          "encryption_ready": {
+            "type": "boolean",
+            "title": "Encryption Ready",
+            "default": false
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "legacy_photos": {
+            "type": "integer",
+            "title": "Legacy Photos",
+            "default": 0
+          },
+          "legacy_confirmed": {
+            "type": "boolean",
+            "title": "Legacy Confirmed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "IntegrationStatus"
       },
       "Job": {
         "properties": {

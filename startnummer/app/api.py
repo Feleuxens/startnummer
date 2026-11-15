@@ -1,5 +1,3 @@
-"""HTTP API for batch imports, review, and publishing."""
-
 import hashlib
 import hmac
 import time
@@ -8,12 +6,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine
 
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
-from startnummer.adapters.chevereto import Chevereto
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import HttpFaceSessions, propagation_problem
 from startnummer.app.contracts import (
@@ -22,11 +20,15 @@ from startnummer.app.contracts import (
     BatchSummary,
     BatchView,
     ChangePreview,
+    CheveretoConnection,
+    ConnectionTest,
     DisciplineAssignment,
     DisciplineOption,
     DisciplinePreview,
     Edit,
     FaceView,
+    IntegrationRevision,
+    IntegrationStatus,
     Login,
     PropagationApply,
     PropagationPreview,
@@ -37,6 +39,7 @@ from startnummer.app.contracts import (
     Selected,
     SessionInfo,
 )
+from startnummer.app.integrations import Integrations
 from startnummer.app.operations import administration, database_healthy, effective_settings, storage_healthy
 from startnummer.app.services import InputPhoto, Services, run
 from startnummer.app.settings import Settings
@@ -45,16 +48,31 @@ from startnummer.core.errors import BlobNotFound
 from startnummer.core.sports.athletics import AthleticsDiscipline
 
 
-def create_app(settings: Settings | None = None, *, store=None, blobs=None, sessions=None, gallery=None, fetch=None):
+def create_app(
+    settings: Settings | None = None,
+    *,
+    store=None,
+    blobs=None,
+    sessions=None,
+    gallery=None,
+    fetch=None,
+    integration_factory=None,
+):
     settings = settings or Settings.from_env()
     store = store or Store(create_engine(settings.database_url, pool_pre_ping=True))
     blobs = blobs or FilesystemBlobStore(settings.blob_root)
     sessions = sessions or HttpFaceSessions(settings.worker_url, settings.worker_secret)
-    if gallery is None and settings.chevereto_url and settings.chevereto_dsn:
-        gallery = Chevereto(settings.chevereto_url, settings.chevereto_dsn)
-    service = Services(store, blobs, settings, sessions, gallery, fetch)
+    integrations = Integrations(store, settings, **({"factory": integration_factory} if integration_factory else {}))
+    service = Services(store, blobs, settings, sessions, gallery if gallery is not None else integrations, fetch)
     app = FastAPI(title="Startnummer", version="0.1.0", openapi_url="/api/openapi.json", docs_url="/api/docs")
     app.state.services = service
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request, exc):
+        # Validation errors must not echo submitted passwords or connection strings.
+        return JSONResponse(
+            {"detail": [{key: error[key] for key in ("loc", "msg", "type")} for error in exc.errors()]}, status_code=422
+        )
 
     @app.middleware("http")
     async def private_responses(request, call_next):
@@ -120,6 +138,22 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
         revision = store.save_settings(owner, body.revision, body.model_dump(exclude={"revision"}))
         return body.model_copy(update={"revision": revision})
 
+    @app.get("/api/admin/integrations/chevereto", response_model=IntegrationStatus)
+    def integration_status(owner: Owner):
+        return integrations.status()
+
+    @app.post("/api/admin/integrations/chevereto/test", response_model=ConnectionTest)
+    def test_integration(owner: Owner, body: CheveretoConnection | None = None):
+        return integrations.test(body)
+
+    @app.put("/api/admin/integrations/chevereto", response_model=IntegrationStatus)
+    def save_integration(body: CheveretoConnection, owner: Owner):
+        return integrations.save(body)
+
+    @app.post("/api/admin/integrations/chevereto/confirm-legacy", response_model=IntegrationStatus)
+    def confirm_legacy(body: IntegrationRevision, owner: Owner):
+        return integrations.confirm_legacy(body.revision)
+
     async def validate_import_fields(request: Request):
         form = await request.form()
         allowed = {"import_id", "name", "meet_name", "gallery_url", "roster_url", "roster_file", "photos"}
@@ -141,11 +175,17 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
             samesite="strict",
             max_age=12 * 3600,
         )
-        return {"username": settings.username, "gallery_url": settings.chevereto_url}
+        return {
+            "username": settings.username,
+            "gallery_url": settings.chevereto_url if gallery else integrations.public_url(),
+        }
 
     @app.get("/api/session", response_model=SessionInfo)
     def session_info(owner: Owner) -> dict:
-        return {"username": settings.username, "gallery_url": settings.chevereto_url}
+        return {
+            "username": settings.username,
+            "gallery_url": settings.chevereto_url if gallery else integrations.public_url(),
+        }
 
     @app.delete("/api/session")
     def logout(owner: Owner, response: Response) -> dict:

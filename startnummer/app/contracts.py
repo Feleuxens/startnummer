@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from startnummer.core.batch import Batch, DescriptionWrite, Job, Publication
 from startnummer.core.sports.athletics import AthleticsDiscipline
@@ -23,6 +23,68 @@ class SessionInfo(BaseModel):
     username: str
     gallery_url: str | None = None
     is_admin: bool = True
+
+
+class CheveretoConnection(Input):
+    revision: int = Field(default=0, ge=0)
+    url: str = Field(min_length=1, max_length=2048)
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(default=3306, ge=1, le=65535)
+    database: str = Field(min_length=1, max_length=255)
+    username: str = Field(min_length=1, max_length=255)
+    password: SecretStr | None = None
+
+    @field_validator("url")
+    @classmethod
+    def gallery_url(cls, value):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(value)
+        port = parsed.port
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or (port is not None and port < 1)
+        ):
+            raise ValueError("Use an HTTP or HTTPS gallery URL without credentials, a query, or a fragment")
+        return value.rstrip("/")
+
+    @field_validator("host")
+    @classmethod
+    def database_host(cls, value):
+        if any(char.isspace() or char in "/@?#\\" for char in value):
+            raise ValueError("Enter a database hostname or IP address")
+        return value
+
+
+class IntegrationStatus(BaseModel):
+    source: Literal["environment", "administration"]
+    revision: int = 0
+    configured: bool = False
+    editable: bool = False
+    url: str | None = None
+    host: str = ""
+    port: int = 3306
+    database: str = ""
+    username: str = ""
+    password_set: bool = False
+    encryption_ready: bool = False
+    error: str | None = None
+    legacy_photos: int = 0
+    legacy_confirmed: bool = False
+
+
+class ConnectionTest(BaseModel):
+    version: str
+    message: str = "Connection and Chevereto 4.5.9 schema verified. No descriptions were written."
+
+
+class IntegrationRevision(Input):
+    revision: int = Field(ge=0)
 
 
 class RuntimeSettings(Input):

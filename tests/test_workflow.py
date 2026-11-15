@@ -54,16 +54,27 @@ def image_bytes():
 
 class FakeGallery:
     def __init__(self):
+        self.base_url = "http://gallery.test"
+        self.identity = None
+        self.allow_legacy = False
         self.values = {1: None, 2: None}
         self.writes = []
         self.fail_once = False
+
+    def probe(self):
+        return {"identity": "a" * 64, "version": "4.5.9"}
 
     def album(self, url):
         return "Example album", [
             RemotePhoto(
                 "same.jpg",
                 f"http://gallery.test/images/{i}.jpg",
-                Destination(instance="http://gallery.test", image_id=i, page_url=f"http://gallery.test/image/{i}"),
+                Destination(
+                    instance="http://gallery.test",
+                    image_id=i,
+                    page_url=f"http://gallery.test/image/{i}",
+                    gallery_identity=self.identity,
+                ),
                 self.values[i],
             )
             for i in (1, 2)

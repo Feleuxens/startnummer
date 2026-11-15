@@ -150,7 +150,11 @@ def supervise(args, settings, *, commands=None):
             "STARTNUMMER_WORKER_URL": state["worker_url"],
             "STARTNUMMER_WORKER_PORT": str(args.worker_port),
         }
-        worker_environment = {key: value for key, value in environment.items() if key != "STARTNUMMER_CHEVERETO_DSN"}
+        worker_environment = {
+            key: value
+            for key, value in environment.items()
+            if key not in {"STARTNUMMER_CHEVERETO_DSN", "STARTNUMMER_INTEGRATION_KEY"}
+        }
         commands = commands or child_commands(args.port, args.cache_mb, args.no_faces)
         stopped = threading.Event()
         previous = {sig: signal.signal(sig, lambda *_: stopped.set()) for sig in (signal.SIGTERM, signal.SIGINT)}

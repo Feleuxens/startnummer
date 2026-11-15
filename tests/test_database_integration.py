@@ -111,8 +111,14 @@ def test_mariadb_exact_null_safe_writes_and_restore():
     # A database dedicated to adapter tests is mandatory; never use 'chevereto'.
     if not make_url(dsn).database.startswith("startnummer_test_"):
         pytest.fail("MariaDB tests require a startnummer_test_* database")
-    gallery = Chevereto("http://gallery.test", dsn)
+    gallery = Chevereto("http://gallery.test", dsn, allow_legacy=True)
     with gallery.connect() as db, db.cursor() as cursor:
+        cursor.execute("CREATE TABLE IF NOT EXISTS chv_variables (variable_name VARCHAR(100), variable_value TEXT)")
+        cursor.execute("DELETE FROM chv_variables")
+        cursor.executemany(
+            "INSERT INTO chv_variables VALUES (%s,%s)",
+            [("crypt_salt", "isolated-synthetic-gallery"), ("chevereto_version_installed", "4.5.9")],
+        )
         cursor.execute(
             "CREATE TABLE IF NOT EXISTS chv_images (image_id INT PRIMARY KEY, "
             "image_description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci)"
@@ -231,3 +237,51 @@ def test_postgres_batch_read_waits_for_worker_result_commit(postgres):
         completing.result(timeout=5)
         assert reading.result(timeout=5).photos[0].caption == "Completed result"
     assert postgres.jobs(owner, batch_id)[0].state == "done"
+
+
+def test_postgres_connection_saves_recheck_revisions_after_probing(postgres, tmp_path):
+    import threading
+    from dataclasses import replace
+
+    from cryptography.fernet import Fernet
+
+    from startnummer.adapters.db.schema import IntegrationRow
+    from startnummer.app.contracts import CheveretoConnection
+    from startnummer.app.integrations import Integrations
+    from startnummer.app.settings import Settings
+
+    Base.metadata.create_all(postgres.engine)
+    gate = threading.Barrier(2)
+    settings = Settings(
+        database_url=str(postgres.engine.url),
+        blob_root=tmp_path,
+        password="test",
+        session_secret="s" * 32,
+        worker_secret="w" * 32,
+        owner_id=uuid4(),
+        integration_key=Fernet.generate_key().decode(),
+    )
+
+    class Gallery:
+        def probe(self):
+            gate.wait(timeout=5)
+            return {"identity": "a" * 64, "version": "4.5.9"}
+
+    manager = Integrations(postgres, settings, factory=lambda *_: Gallery())
+    request = CheveretoConnection(
+        url="http://gallery.test", host="db.test", database="gallery", username="test", password="synthetic-password"
+    )
+
+    def save():
+        try:
+            return manager.save(request).revision
+        except Conflict:
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: save(), range(2)))
+    assert sorted(map(str, outcomes)) == ["1", "conflict"]
+    with postgres.transaction() as session:
+        row = session.get(IntegrationRow, settings.owner_id)
+        assert row.revision == 1 and "synthetic-password" not in row.credentials
+    assert not Integrations(postgres, replace(settings, owner_id=uuid4())).status().configured

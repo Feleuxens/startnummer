@@ -67,13 +67,13 @@ class Services:
         self.sessions, self.gallery = sessions, gallery
         self.fetch = fetch or self._fetch
 
-    def _fetch(self, url: str, *, roster: bool = False) -> bytes:
+    def _fetch(self, url: str, *, roster: bool = False, gallery_base: str | None = None) -> bytes:
         parsed = urlparse(url)
         if roster:
             allowed = parsed.scheme in ("http", "https") and parsed.hostname in self.settings.roster_hosts
             allowed = allowed and parsed.port in (None, 80, 443)
         else:
-            configured = urlparse(self.settings.chevereto_url or "")
+            configured = urlparse(gallery_base or self.settings.chevereto_url or "")
             allowed = (parsed.scheme, parsed.netloc) == (configured.scheme, configured.netloc)
         if not allowed or parsed.username or parsed.password:
             raise WorkflowError("URL is not a supported/configured source")
@@ -90,6 +90,11 @@ class Services:
                 return bytes(data)
         except httpx.HTTPError as exc:
             raise WorkflowError("Could not fetch the configured source; check its URL and access") from exc
+
+    def _gallery(self):
+        if self.gallery is None:
+            raise WorkflowError("No gallery is configured")
+        return self.gallery.snapshot() if hasattr(self.gallery, "snapshot") else self.gallery
 
     def import_batch(
         self, owner_id, name, meet_name, photos, gallery_url, roster_html, roster_url, import_id=None
@@ -116,13 +121,16 @@ class Services:
         if gallery_url:
             if photos:
                 raise WorkflowError("Choose either gallery import or uploaded photos")
-            if self.gallery is None:
-                raise WorkflowError("No gallery is configured")
-            album_name, remote = self.gallery.album(gallery_url)
+            gallery = self._gallery()
+            album_name, remote = gallery.album(gallery_url)
             photos = []
             total = 0
             for remote_photo in remote:
-                data = self.fetch(remote_photo.source_url)
+                data = (
+                    self._fetch(remote_photo.source_url, gallery_base=gallery.base_url)
+                    if self.fetch == self._fetch
+                    else self.fetch(remote_photo.source_url)
+                )
                 total += len(data)
                 if total > limits.max_batch_bytes:
                     raise WorkflowError("Batch exceeds the configured size limit")
@@ -707,8 +715,7 @@ class Services:
         ]
 
     def apply(self, owner_id, batch_id, selections):
-        if self.gallery is None:
-            raise WorkflowError("No gallery is configured")
+        gallery = self._gallery()
         results = []
         # Commit the intended change before writing to the gallery so retries
         # can reconcile an interrupted write. The second transaction rechecks
@@ -747,7 +754,7 @@ class Services:
                 photo = batch.photo(selection.photo_id)
                 if photo.revision != selection.revision or not photo.approved:
                     raise Conflict("Caption changed before the gallery write")
-                result = self.gallery.write(operation.change)
+                result = gallery.write(operation.change)
                 operation.result = result
                 if result.state in (WriteState.APPLIED, WriteState.UNCHANGED):
                     photo.current_description = operation.change.replacement
@@ -757,8 +764,7 @@ class Services:
         return results
 
     def reconcile(self, owner_id, batch_id, operation_id):
-        if self.gallery is None:
-            raise WorkflowError("No gallery is configured")
+        gallery = self._gallery()
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
@@ -767,7 +773,7 @@ class Services:
             )
             if operation is None or operation.restored:
                 raise Conflict("Publishing operation is unavailable or was already restored")
-            result = self.gallery.inspect(operation.change)
+            result = gallery.inspect(operation.change)
             operation.result = result
             self.store.save_publication(session, operation)
             if result.state is WriteState.UNCHANGED:
@@ -779,15 +785,14 @@ class Services:
             return operation
 
     def refresh_description(self, owner_id, batch_id, photo_id, revision):
-        if self.gallery is None:
-            raise WorkflowError("No gallery is configured")
+        gallery = self._gallery()
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             photo = batch.photo(photo_id)
             if photo.revision != revision or photo.destination is None:
                 raise Conflict("Photo changed or has no gallery destination; reload before refreshing")
-            result = self.gallery.inspect(
+            result = gallery.inspect(
                 DescriptionWrite(
                     destination=photo.destination, expected=photo.current_description, replacement=photo.caption
                 )
@@ -801,8 +806,7 @@ class Services:
             return photo
 
     def restore(self, owner_id, batch_id, operation_id):
-        if self.gallery is None:
-            raise WorkflowError("No gallery is configured")
+        gallery = self._gallery()
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
@@ -813,7 +817,7 @@ class Services:
                 raise Conflict("Only a completed publishing operation can be restored")
             if operation.restored:
                 return WriteResult(state=WriteState.UNCHANGED, live_value=operation.change.expected)
-            result = self.gallery.write(
+            result = gallery.write(
                 DescriptionWrite(
                     destination=operation.change.destination,
                     expected=operation.change.replacement,

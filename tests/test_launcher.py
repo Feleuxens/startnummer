@@ -52,6 +52,7 @@ def test_supervisor_starts_probes_restarts_only_failed_child_and_stops_own_servi
         STARTNUMMER_SESSION_SECRET="s" * 32,
         STARTNUMMER_WORKER_SECRET="w" * 32,
         STARTNUMMER_CHEVERETO_DSN="must-not-reach-the-worker",
+        STARTNUMMER_INTEGRATION_KEY="must-not-reach-the-worker-either",
         STARTNUMMER_WORKER_URL=f"http://127.0.0.1:{worker_port}",
     )
     migrate(create_engine(env["STARTNUMMER_DATABASE_URL"]))

@@ -19,6 +19,7 @@ class Settings:
     roster_hosts: tuple[str, ...] = ("ergebnisse.leichtathletik.de",)
     chevereto_url: str | None = None
     chevereto_dsn: str | None = None
+    integration_key: str | None = None
     cookie_secure: bool = False
     max_file_bytes: int = 50 * 1024 * 1024
     max_batch_bytes: int = 2 * 1024 * 1024 * 1024
@@ -43,6 +44,7 @@ class Settings:
             roster_hosts=tuple(os.environ.get("STARTNUMMER_ROSTER_HOSTS", "ergebnisse.leichtathletik.de").split(",")),
             chevereto_url=os.environ.get("STARTNUMMER_CHEVERETO_URL"),
             chevereto_dsn=os.environ.get("STARTNUMMER_CHEVERETO_DSN"),
+            integration_key=os.environ.get("STARTNUMMER_INTEGRATION_KEY"),
             cookie_secure=os.environ.get("STARTNUMMER_COOKIE_SECURE", "0") == "1",
             session_ttl=int(os.environ.get("STARTNUMMER_FACE_SESSION_TTL", "3600")),
             max_file_bytes=int(os.environ.get("STARTNUMMER_MAX_FILE_BYTES", str(50 * 1024 * 1024))),

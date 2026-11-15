@@ -24,8 +24,10 @@ class RemotePhoto:
 
 
 class Chevereto:
-    def __init__(self, base_url: str, dsn: str):
+    def __init__(self, base_url: str, dsn: str, *, identity: str | None = None, allow_legacy: bool = False):
         self.base_url = base_url.rstrip("/")
+        self.identity = identity
+        self.allow_legacy = allow_legacy
         parsed = urlparse(dsn)
         if parsed.scheme not in ("mysql", "mariadb"):
             raise ValueError("Chevereto DSN must use mysql:// or mariadb://")
@@ -34,7 +36,7 @@ class Chevereto:
             port=parsed.port or 3306,
             user=unquote(parsed.username or ""),
             password=unquote(parsed.password or ""),
-            database=parsed.path.lstrip("/"),
+            database=unquote(parsed.path.lstrip("/")),
             charset="utf8mb4",
             cursorclass=DictCursor,
             connect_timeout=10,
@@ -51,6 +53,40 @@ class Chevereto:
             "WHERE variable_name IN ('crypt_salt', 'id_padding', 'chevereto_version_installed')"
         )
         return {row["variable_name"]: row["variable_value"] for row in cursor.fetchall()}
+
+    def _verified_identity(self, variables):
+        if str(variables.get("chevereto_version_installed", "")) != "4.5.9":
+            raise WorkflowError("This adapter is verified for Chevereto 4.5.9; verify other versions before use")
+        salt = variables.get("crypt_salt")
+        if not isinstance(salt, str) or not salt:
+            raise WorkflowError("The gallery has no usable installation identity")
+        identity = hashlib.sha256(("chevereto:" + salt).encode()).hexdigest()
+        if self.identity is not None and identity != self.identity:
+            raise WorkflowError("The database belongs to a different gallery; the connection was not used")
+        return identity
+
+    def probe(self):
+        """Verify the supported schema using reads only; never return the installation salt."""
+        try:
+            with self.connect() as db, db.cursor() as cursor:
+                identity = self._verified_identity(self._variables(cursor))
+                cursor.execute("SELECT album_id,album_name FROM chv_albums LIMIT 0")
+                cursor.execute("SELECT setting_name,setting_value FROM chv_settings LIMIT 0")
+                cursor.execute(
+                    "SELECT image_id,image_album_id,image_name,image_extension,image_date,image_storage_mode,"
+                    "image_path,image_storage_id,image_description,image_original_filename FROM chv_images LIMIT 0"
+                )
+                return {"identity": identity, "version": "4.5.9"}
+        except pymysql.MySQLError:
+            raise WorkflowError("Could not read the Chevereto database; check the connection and schema") from None
+
+    def _check_destination(self, cursor, destination):
+        identity = self._verified_identity(self._variables(cursor))
+        if destination.gallery_identity is None:
+            if not self.allow_legacy:
+                raise WorkflowError("Confirm this gallery for older batches in Administration before publishing")
+        elif destination.gallery_identity != identity:
+            raise WorkflowError("This photo belongs to a different gallery; its description was not accessed")
 
     @staticmethod
     def _alphabet(variables):
@@ -90,9 +126,7 @@ class Chevereto:
         encoded = match[1].rsplit(".", 1)[-1]
         with self.connect() as db, db.cursor() as cursor:
             variables = self._variables(cursor)
-            version = variables.get("chevereto_version_installed", "")
-            if str(version) != "4.5.9":
-                raise WorkflowError("This adapter is verified for Chevereto 4.5.9; verify other versions before use")
+            identity = self._verified_identity(variables)
             album_id = self.decode(encoded, variables)
             cursor.execute("SELECT album_name FROM chv_albums WHERE album_id=%s", (album_id,))
             album = cursor.fetchone()
@@ -130,7 +164,12 @@ class Chevereto:
                     RemotePhoto(
                         name=image["image_original_filename"] or filename,
                         source_url=self.base_url + "/" + image_root + "/" + directory + quote(filename, safe=""),
-                        destination=Destination(instance=self.base_url, image_id=image["image_id"], page_url=page_url),
+                        destination=Destination(
+                            instance=self.base_url,
+                            image_id=image["image_id"],
+                            page_url=page_url,
+                            gallery_identity=identity,
+                        ),
                         description=image["image_description"],
                     )
                 )
@@ -142,6 +181,7 @@ class Chevereto:
             return WriteResult(state=WriteState.FAILURE, error="Destination is not the configured gallery")
         try:
             with self.connect() as db, db.cursor() as cursor:
+                self._check_destination(cursor, change.destination)
                 cursor.execute(
                     "SELECT image_description FROM chv_images WHERE image_id=%s", (change.destination.image_id,)
                 )
@@ -153,6 +193,8 @@ class Chevereto:
                     state=WriteState.UNCHANGED if live == change.replacement else WriteState.CONFLICT,
                     live_value=live,
                 )
+        except WorkflowError as exc:
+            return WriteResult(state=WriteState.FAILURE, error=str(exc))
         except pymysql.MySQLError:
             return WriteResult(state=WriteState.FAILURE, error="Could not read the gallery description; retry later")
 
@@ -161,6 +203,7 @@ class Chevereto:
             return WriteResult(state=WriteState.FAILURE, error="Destination is not the configured gallery")
         try:
             with self.connect() as db, db.cursor() as cursor:
+                self._check_destination(cursor, change.destination)
                 cursor.execute(
                     "SELECT image_description FROM chv_images WHERE image_id=%s FOR UPDATE",
                     (change.destination.image_id,),
@@ -185,5 +228,7 @@ class Chevereto:
                     return WriteResult(state=WriteState.CONFLICT, live_value=live)
                 db.commit()
                 return WriteResult(state=WriteState.APPLIED, live_value=change.replacement)
+        except WorkflowError as exc:
+            return WriteResult(state=WriteState.FAILURE, error=str(exc))
         except pymysql.MySQLError:
             return WriteResult(state=WriteState.FAILURE, error="Gallery database write failed; retry to reconcile")
