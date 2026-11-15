@@ -12,6 +12,9 @@ installs one ONNX Runtime and the active RapidOCR/InsightFace adapters. No model
 or private photos are copied from the host. See [device profiles](devices.md) for
 native installation, including CoreML/Neural Engine support on Apple silicon.
 
+The [container release guide](releases.md) describes GHCR images, release tags,
+and pulling an existing version. The commands below build from a local checkout.
+
 ## First start
 
 Use Docker Engine with Compose v2 or later. The deployment is tested on Linux
@@ -37,7 +40,8 @@ print("STARTNUMMER_INTEGRATION_KEY=" + base64.urlsafe_b64encode(secrets.token_by
 
 Copy these values into `.env.docker` and set `STARTNUMMER_PASSWORD` for login.
 Use hexadecimal for `POSTGRES_PASSWORD`: Compose embeds it in a database URL.
-Set `STARTNUMMER_IMAGE_TAG=local` for local builds.
+Set `STARTNUMMER_IMAGE_TAG=local` for these local builds. For published images,
+set it to their version and use the pull commands in the release guide.
 Keep `STARTNUMMER_USERNAME` stable; it determines ownership of saved records.
 Keep the configuration and encryption key separately from application backups.
 
@@ -191,6 +195,7 @@ docker compose --env-file .env.docker -f compose.yaml logs --tail=100 api worker
 
 Use the same Intel or GPU override if applicable. Stop the API and worker before migrating
 an update so the old code cannot keep editing the database during schema changes.
+For a published update, replace `build` with `pull` and add `--no-build` to `up`.
 After a code/image update, the migration service must run successfully before the
 API and worker are recreated. Keep the old source version/image until the update
 is verified. Schema changes may require restoring a backup rather than simply

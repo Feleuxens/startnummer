@@ -1,0 +1,217 @@
+name: Build and publish images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+jobs:
+  checks:
+    name: Python and browser checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      namespace: ${{ steps.plan.outputs.namespace }}
+      suffix: ${{ steps.plan.outputs.suffix }}
+      alias: ${{ steps.plan.outputs.alias }}
+      publish: ${{ steps.plan.outputs.publish }}
+      revision: ${{ steps.plan.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.7
+          python-version: '3.12'
+          enable-cache: true
+      - name: Plan image tags
+        id: plan
+        run: python scripts/container_tags.py >> "$GITHUB_OUTPUT"
+      - name: Install Python dependencies
+        run: uv sync --locked --extra api
+      - name: Check Python
+        run: |
+          uv run --no-sync ruff check startnummer tests migrations scripts
+          uv run --no-sync ruff format --check startnummer tests migrations scripts
+          uv run --no-sync lint-imports --no-cache
+          uv run --no-sync pytest
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: startnummer-web/package-lock.json
+      - name: Install frontend dependencies and Chromium
+        working-directory: startnummer-web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          echo "CHROMIUM_PATH=$(node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log(chromium.executablePath())')" >> "$GITHUB_ENV"
+      - name: Check frontend and run browser tests
+        working-directory: startnummer-web
+        run: |
+          npm run format:check
+          npm test
+          git diff --exit-code -- openapi.json src/api/schema.d.ts
+
+  pr-build:
+    name: Check ${{ matrix.target }} image
+    needs: checks
+    if: needs.checks.outputs.publish != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api, worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=image-${{ matrix.target }}
+
+  publish:
+    name: Publish ${{ matrix.variant }}
+    needs: checks
+    if: needs.checks.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: web
+            image: startnummer-web
+            target: api
+            prefix: ''
+          - variant: cpu
+            image: startnummer-worker
+            target: worker
+            prefix: cpu-
+          - variant: intel
+            image: startnummer-worker
+            target: worker-intel
+            prefix: intel-
+          - variant: nvidia
+            image: startnummer-worker
+            target: worker-gpu
+            prefix: nvidia-
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.checks.outputs.revision }}
+          persist-credentials: false
+      - name: Make room for model runtimes
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ needs.checks.outputs.namespace }}/${{ matrix.image }}:${{ matrix.prefix }}${{ needs.checks.outputs.suffix }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.checks.outputs.revision }}
+            org.opencontainers.image.version=${{ needs.checks.outputs.suffix }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=image-${{ matrix.target }}
+          cache-to: type=gha,mode=min,scope=image-${{ matrix.target }}
+      - name: Record published digest
+        env:
+          IMAGE: ${{ needs.checks.outputs.namespace }}/${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          mkdir -p digests
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > "digests/$VARIANT.txt"
+          printf '%s\n' "Published $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.variant }}
+          path: digests/*.txt
+          retention-days: 7
+          if-no-files-found: error
+
+  aliases:
+    name: Update moving tags
+    needs: [checks, publish]
+    if: needs.checks.outputs.alias != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - name: Tag the completed image set
+        env:
+          ALIAS: ${{ needs.checks.outputs.alias }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REVISION: ${{ needs.checks.outputs.revision }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "$ALIAS" == latest ]]; then
+            current=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            if [[ "$current" != "$RELEASE_TAG" ]]; then
+              echo "Version images published; this is not GitHub's latest release." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+            if [[ "$current" != "$REVISION" ]]; then
+              echo "Commit images published; main has moved on." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          for variant in web cpu intel nvidia; do
+            source=$(cat "digests/$variant.txt")
+            image=${source%@*}
+            prefix=""
+            if [[ "$variant" != web ]]; then prefix="$variant-"; fi
+            tag="$image:$prefix$ALIAS"
+            docker buildx imagetools create --tag "$tag" "$source"
+            printf '%s\n' "Updated $tag" >> "$GITHUB_STEP_SUMMARY"
+          done

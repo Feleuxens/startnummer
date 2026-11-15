@@ -14,6 +14,8 @@ for Apple silicon acceleration. See [Docker deployment](docs/docker.md)
 for building and starting the app, NVIDIA GPU configuration, HTTPS, updates, and
 backup/restore. `compose.yaml` runs Startnummer; the separate `docker-compose.yml`
 runs local test services. The native setup below also supports local installations.
+See [container releases](docs/releases.md) for GHCR images and release/development
+tags. The web image serves both the frontend and API.
 
 See [device profiles](docs/devices.md) for Intel OpenVINO, NVIDIA CUDA, and native
 Apple CoreML/Neural Engine installation and runtime selection.
