@@ -3,6 +3,9 @@ import type { SubmitEvent } from 'react';
 import type { components } from '../api/schema';
 import { api, message, unwrap } from '../api/client';
 import FacePropagation from './FacePropagation';
+import BulkDiscipline from './BulkDiscipline';
+import DisciplineSelect from './DisciplineSelect';
+import Administration from './Administration';
 
 type Schema = components['schemas'];
 type Photo = Schema['Photo'];
@@ -28,6 +31,16 @@ const selection = (photo: Photo): Selection => ({
   photo_id: photo.id,
   revision: photo.revision ?? 0,
 });
+const matchesRosterQuery = (person: Schema['Athlete'], query: string) => {
+  const text = [person.name, person.bib, person.club].filter(Boolean).join(' ').toLocaleLowerCase();
+  return query
+    .trim()
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .every((term) => text.includes(term));
+};
+const rosterPersonLabel = (person: Schema['Athlete']) =>
+  [person.bib, person.name, person.club].filter(Boolean).join(' · ');
 const emptyFaces: FaceView = {
   available: false,
   session_id: null,
@@ -39,7 +52,7 @@ const emptyFaces: FaceView = {
 export default function Workspace() {
   const [session, setSession] = useState<Schema['SessionInfo'] | null>(null);
   const [checking, setChecking] = useState(true);
-  const [screen, setScreen] = useState<'albums' | 'new' | 'review'>('albums');
+  const [screen, setScreen] = useState<'albums' | 'new' | 'review' | 'admin'>('albums');
   const [albums, setAlbums] = useState<Schema['BatchSummary'][]>([]);
   const [view, setView] = useState<BatchView | null>(null);
   const [faces, setFaces] = useState<FaceView>(emptyFaces);
@@ -47,6 +60,12 @@ export default function Workspace() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [subject, setSubject] = useState<number | null>(null);
   const [filter, setFilter] = useState('all');
+  const [selecting, setSelecting] = useState(false);
+  const [checkedPhotos, setCheckedPhotos] = useState<Set<string>>(new Set());
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const rangeAnchor = useRef<string | null>(null);
+  const [disciplinePhotos, setDisciplinePhotos] = useState<Photo[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,6 +95,12 @@ export default function Workspace() {
     );
     if (first) {
       setPropagation(null);
+      setSelecting(false);
+      setCheckedPhotos(new Set());
+      setDisciplinePhotos(null);
+      setRangeStart('');
+      setRangeEnd('');
+      rangeAnchor.current = null;
       setSelectedId(data.batch.photos[0]?.id ?? null);
       setSubject(null);
     }
@@ -300,6 +325,7 @@ export default function Workspace() {
       (filter === 'unapproved' && !approved(p)) ||
       (filter === 'failed' && p.analysis?.record.status === 'failed') ||
       (filter === 'pending' && !p.analysis) ||
+      (filter === 'undetermined' && p.analysis && !p.analysis.record.event.discipline) ||
       (filter === 'publishing-issues' &&
         !latestPublication.get(p.id)?.restored &&
         ['pending', 'conflict', 'failure'].includes(
@@ -320,6 +346,25 @@ export default function Workspace() {
   const latestJob = view?.jobs[0];
   const approvedCount = photos.filter(approved).length;
   const eligibleUnapproved = photos.filter((p) => eligible(p) && !approved(p));
+  const selectablePhotos = visible.filter((photo) => photo.analysis);
+  const selectedPhotos = selectablePhotos.filter((photo) => checkedPhotos.has(photo.id));
+  function selectRange(from: string, to: string, add = false, checked = true) {
+    const start = visible.findIndex((photo) => photo.id === from);
+    const end = visible.findIndex((photo) => photo.id === to);
+    if (start < 0 || end < 0) return;
+    const ids = visible
+      .slice(Math.min(start, end), Math.max(start, end) + 1)
+      .filter((photo) => photo.analysis)
+      .map((photo) => photo.id);
+    setCheckedPhotos((previous) => {
+      const next = new Set(add ? previous : []);
+      for (const id of ids) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className="app-shell">
@@ -368,6 +413,22 @@ export default function Workspace() {
           >
             New batch <span>+</span>
           </button>
+          {session.is_admin && (
+            <button
+              className={screen === 'admin' ? 'active' : ''}
+              onClick={() => {
+                if (dirty.current && !window.confirm('Leave without saving caption changes?'))
+                  return;
+                dirty.current = false;
+                setScreen('admin');
+                setError('');
+                setNotice('');
+                window.location.hash = '';
+              }}
+            >
+              Administration
+            </button>
+          )}
         </nav>
         <p className="sidebar-note">
           Photos to captions.
@@ -405,7 +466,9 @@ export default function Workspace() {
               ? view?.batch.album.name
               : screen === 'new'
                 ? 'New batch'
-                : 'Your photo workspace'}
+                : screen === 'admin'
+                  ? 'Administration'
+                  : 'Your photo workspace'}
           </span>
           <span>{session.gallery_url ? 'Chevereto configured' : 'No gallery configured'}</span>
         </header>
@@ -463,6 +526,13 @@ export default function Workspace() {
             </>
           )}
 
+          {screen === 'admin' && (
+            <Administration
+              onDirty={(value) => {
+                dirty.current = value;
+              }}
+            />
+          )}
           {screen === 'new' && (
             <ImportBatch
               busy={busy}
@@ -591,8 +661,18 @@ export default function Workspace() {
               <div className="review-toolbar">
                 <label>
                   Show{' '}
-                  <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+                  <select
+                    value={filter}
+                    onChange={(e) => {
+                      setFilter(e.target.value);
+                      setCheckedPhotos(new Set());
+                      setRangeStart('');
+                      setRangeEnd('');
+                      rangeAnchor.current = null;
+                    }}
+                  >
                     <option value="all">All photos</option>
+                    <option value="undetermined">Undetermined discipline</option>
                     <option value="unresolved">Unresolved evidence</option>
                     <option value="unapproved">Not approved</option>
                     <option value="approved">Approved</option>
@@ -602,6 +682,18 @@ export default function Workspace() {
                     <option value="published">Published</option>
                   </select>
                 </label>
+                <button
+                  disabled={busy || running || !photos.some((photo) => photo.analysis)}
+                  aria-pressed={selecting}
+                  onClick={() => {
+                    setSelecting(!selecting);
+                    setCheckedPhotos(new Set());
+                    rangeAnchor.current = null;
+                    setMobileDetail(false);
+                  }}
+                >
+                  {selecting ? 'Done selecting' : 'Select photos'}
+                </button>
                 <button
                   disabled={busy || running || !eligibleUnapproved.length}
                   onClick={() => {
@@ -654,6 +746,82 @@ export default function Workspace() {
                     : 'unavailable · saved captions remain editable'}
                 </span>
               </div>
+              {selecting && (
+                <section className="photo-selection" aria-label="Select photos for discipline">
+                  <div className="range-selection">
+                    <label>
+                      From photo
+                      <select
+                        value={rangeStart || selectablePhotos[0]?.id || ''}
+                        disabled={busy || running || !selectablePhotos.length}
+                        onChange={(event) => setRangeStart(event.target.value)}
+                      >
+                        {selectablePhotos.map((photo) => (
+                          <option key={photo.id} value={photo.id}>
+                            {photos.indexOf(photo) + 1}. {photo.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Through photo
+                      <select
+                        value={rangeEnd || selectablePhotos.at(-1)?.id || ''}
+                        disabled={busy || running || !selectablePhotos.length}
+                        onChange={(event) => setRangeEnd(event.target.value)}
+                      >
+                        {selectablePhotos.map((photo) => (
+                          <option key={photo.id} value={photo.id}>
+                            {photos.indexOf(photo) + 1}. {photo.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      disabled={busy || running || !selectablePhotos.length}
+                      onClick={() =>
+                        selectRange(
+                          rangeStart || selectablePhotos[0]!.id,
+                          rangeEnd || selectablePhotos.at(-1)!.id,
+                        )
+                      }
+                    >
+                      Select range
+                    </button>
+                  </div>
+                  <div className="actions">
+                    <span role="status">{selectedPhotos.length} selected</span>
+                    <button
+                      disabled={busy || !selectedPhotos.length}
+                      onClick={() => {
+                        setCheckedPhotos(new Set());
+                        rangeAnchor.current = null;
+                      }}
+                    >
+                      Clear selection
+                    </button>
+                    <button
+                      disabled={busy || running || !selectedPhotos.length}
+                      onClick={() => {
+                        setError('');
+                        if (dirty.current) {
+                          setError(
+                            'Save the current photo’s changes before assigning a discipline.',
+                          );
+                          return;
+                        }
+                        setDisciplinePhotos(selectedPhotos);
+                      }}
+                    >
+                      Assign discipline…
+                    </button>
+                  </div>
+                  <p className="muted">
+                    Check photos individually or Shift-click to extend a selection. Ranges follow
+                    the current filter in album order. Changing the filter clears the selection.
+                  </p>
+                </section>
+              )}
               {faces.available && !faces.propagation_available && (
                 <p className="worker-notice" role="status">
                   {faces.propagation_unavailable_reason ||
@@ -665,20 +833,52 @@ export default function Workspace() {
               <div className={`review-grid ${mobileDetail ? 'show-detail' : ''}`}>
                 <section className="contact-sheet" aria-label="Photo queue">
                   {visible.map((photo) => (
-                    <button
+                    <div
                       key={photo.id}
-                      disabled={busy}
-                      className={`photo-tile ${photo.id === selectedId ? 'selected' : ''}`}
-                      onClick={() => selectPhoto(photo)}
+                      className={`photo-choice ${checkedPhotos.has(photo.id) ? 'checked' : ''}`}
                     >
-                      <img src={photoUrl(photo.id)} alt={photo.display_name} loading="lazy" />
-                      <span>{photo.display_name}</span>
-                      <small className={approved(photo) ? 'positive' : ''}>
-                        {approved(photo)
-                          ? 'Approved'
-                          : photo.analysis?.record.status?.replaceAll('_', ' ') || 'Not analyzed'}
-                      </small>
-                    </button>
+                      {selecting && (
+                        <label className="photo-check">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${photo.display_name}`}
+                            disabled={busy || running || !photo.analysis}
+                            checked={checkedPhotos.has(photo.id)}
+                            onChange={(event) => {
+                              const checked = event.target.checked;
+                              if (
+                                (event.nativeEvent as MouseEvent).shiftKey &&
+                                rangeAnchor.current
+                              ) {
+                                selectRange(rangeAnchor.current, photo.id, true, checked);
+                              } else {
+                                setCheckedPhotos((previous) => {
+                                  const next = new Set(previous);
+                                  if (checked) next.add(photo.id);
+                                  else next.delete(photo.id);
+                                  return next;
+                                });
+                              }
+                              rangeAnchor.current = photo.id;
+                            }}
+                          />
+                          Select
+                        </label>
+                      )}
+                      <button
+                        disabled={busy}
+                        className={`photo-tile ${photo.id === selectedId ? 'selected' : ''}`}
+                        onClick={() => selectPhoto(photo)}
+                      >
+                        <img src={photoUrl(photo.id)} alt={photo.display_name} loading="lazy" />
+                        <span>{photo.display_name}</span>
+                        <small className={approved(photo) ? 'positive' : ''}>
+                          {approved(photo)
+                            ? 'Approved'
+                            : photo.analysis?.record.status?.replaceAll('_', ' ') || 'Not analyzed'}
+                        </small>
+                      </button>
+                    </div>
                   ))}
                   {!visible.length && <p className="empty">No photos match this filter.</p>}
                 </section>
@@ -1000,6 +1200,45 @@ export default function Workspace() {
           )}
         </div>
       </main>
+      {disciplinePhotos && view && (
+        <BulkDiscipline
+          photos={disciplinePhotos}
+          roster={view.batch.roster}
+          disciplines={disciplines}
+          onClose={() => setDisciplinePhotos(null)}
+          onPreview={async (request) =>
+            unwrap(
+              await api.POST('/api/batches/{batch_id}/discipline-preview', {
+                params: { path: { batch_id: view.batch.album.id } },
+                body: request,
+              }),
+            )
+          }
+          onApply={async (request) => {
+            const updated = unwrap(
+              await api.POST('/api/batches/{batch_id}/discipline', {
+                params: { path: { batch_id: view.batch.album.id } },
+                body: request,
+              }),
+            );
+            await loadBatch(view.batch.album.id);
+            setDisciplinePhotos(null);
+            setCheckedPhotos(new Set());
+            setRangeStart('');
+            setRangeEnd('');
+            rangeAnchor.current = null;
+            const changed = updated.filter((photo) =>
+              request.photos.some(
+                (selection) =>
+                  selection.photo_id === photo.id && selection.revision !== photo.revision,
+              ),
+            ).length;
+            setNotice(
+              `Discipline assigned to ${changed} photos. Review changed captions before approving.`,
+            );
+          }}
+        />
+      )}
       {propagation && (
         <FacePropagation
           preview={propagation}
@@ -1357,15 +1596,17 @@ function Editor({
   const [dirty, setDirty] = useState(false);
   const [rosterQuery, setRosterQuery] = useState('');
   const [rosterIndex, setRosterIndex] = useState('');
+  const [athleteQuery, setAthleteQuery] = useState('');
+  useEffect(() => setAthleteQuery(''), [subject]);
   const peopleToAdd = (roster.athletes ?? [])
     .map((person, index) => ({ person, index }))
-    .filter(({ person }) =>
-      [person.name, person.bib, person.club]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase()
-        .includes(rosterQuery.trim().toLocaleLowerCase()),
-    );
+    .filter(({ person }) => matchesRosterQuery(person, rosterQuery));
+  const peopleToAssign = (roster.athletes ?? []).filter(
+    (person) => person.bib && matchesRosterQuery(person, athleteQuery),
+  );
+  const chosenAthlete = patch.roster_bib
+    ? roster.athletes?.find((person) => person.bib === patch.roster_bib)
+    : undefined;
   const record = photo.analysis?.record;
   const subjects = record?.subjects ?? [];
   const mark = () => {
@@ -1477,7 +1718,7 @@ function Editor({
                   <option value="">Choose a person</option>
                   {peopleToAdd.map(({ person, index }) => (
                     <option value={index} key={index}>
-                      {[person.bib, person.name, person.club].filter(Boolean).join(' · ')}
+                      {rosterPersonLabel(person)}
                     </option>
                   ))}
                 </select>
@@ -1545,6 +1786,18 @@ function Editor({
                 />
               </label>
               <label>
+                Search roster athletes
+                <input
+                  type="search"
+                  value={athleteQuery}
+                  placeholder="Name, bib, or club"
+                  onChange={(event) => setAthleteQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault();
+                  }}
+                />
+              </label>
+              <label>
                 Assign roster athlete
                 <select
                   value={patch.roster_bib ?? ''}
@@ -1555,15 +1808,21 @@ function Editor({
                   }}
                 >
                   <option value="">Choose an athlete</option>
-                  {roster.athletes
-                    ?.filter((a) => a.bib)
-                    .map((athlete, index) => (
-                      <option key={`${athlete.bib}-${index}`} value={athlete.bib ?? ''}>
-                        {athlete.bib} · {athlete.name}
+                  {chosenAthlete && !peopleToAssign.includes(chosenAthlete) && (
+                    <optgroup label="Selected athlete">
+                      <option value={chosenAthlete.bib ?? ''}>
+                        {rosterPersonLabel(chosenAthlete)}
                       </option>
-                    ))}
+                    </optgroup>
+                  )}
+                  {peopleToAssign.map((athlete) => (
+                    <option key={athlete.bib} value={athlete.bib ?? ''}>
+                      {rosterPersonLabel(athlete)}
+                    </option>
+                  ))}
                 </select>
               </label>
+              {!peopleToAssign.length && <small>No roster athletes match this search.</small>}
               <label>
                 Or enter a name
                 <input
@@ -1620,26 +1879,14 @@ function Editor({
         {record && (
           <label>
             Discipline
-            <select
+            <DisciplineSelect
               value={'discipline' in patch ? (patch.discipline ?? '') : discipline}
-              onChange={(event) =>
-                update({
-                  discipline:
-                    disciplines.find((d) => d.value === event.target.value)?.value ?? null,
-                })
-              }
-            >
-              <option value="">Undetermined</option>
-              {disciplines.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.value === 'no_event'
-                    ? 'No event (explicit decision)'
-                    : d.value === 'other'
-                      ? 'Other / unspecified'
-                      : `${d.de} / ${d.en}`}
-                </option>
-              ))}
-            </select>
+              options={disciplines}
+              photos={[photo]}
+              roster={roster}
+              disabled={busy}
+              onChange={(value) => update({ discipline: value })}
+            />
             {record.event.discipline?.note && (
               <small>
                 {record.event.discipline.source} · {record.event.discipline.note}

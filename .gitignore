@@ -227,6 +227,9 @@ __marimo__/
 test-pictures/
 dev-containers/
 .startnummer/
+*.snbak
+.startnummer-backup-*
+.startnummer-restore-*/
 .taste-skill/
 startnummer-web/node_modules/
 startnummer-web/dist/

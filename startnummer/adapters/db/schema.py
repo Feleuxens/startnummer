@@ -11,6 +11,13 @@ class Base(DeclarativeBase):
     pass
 
 
+class SettingsRow(Base):
+    __tablename__ = "sn_settings"
+    owner_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    document: Mapped[dict] = mapped_column(JSON)
+
+
 class BatchRow(Base):
     __tablename__ = "sn_batches"
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)

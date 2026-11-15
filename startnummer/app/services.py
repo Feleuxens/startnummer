@@ -14,7 +14,14 @@ from PIL import Image, UnidentifiedImageError
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import LeichtathletikDeEntryListParser
 from startnummer.adapters.face.sessions import propagation_problem
-from startnummer.app.contracts import FaceTarget, PropagationCandidate, PropagationPreview
+from startnummer.app.contracts import (
+    DisciplineChange,
+    DisciplinePreview,
+    FaceTarget,
+    PropagationCandidate,
+    PropagationPreview,
+)
+from startnummer.app.operations import effective_settings
 from startnummer.core.batch import (
     AnalysisDocument,
     Batch,
@@ -70,7 +77,8 @@ class Services:
             allowed = (parsed.scheme, parsed.netloc) == (configured.scheme, configured.netloc)
         if not allowed or parsed.username or parsed.password:
             raise WorkflowError("URL is not a supported/configured source")
-        limit = min(self.settings.max_file_bytes, 10 * 1024 * 1024) if roster else self.settings.max_file_bytes
+        maximum = effective_settings(self.store, self.settings).max_file_bytes
+        limit = min(maximum, 10 * 1024 * 1024) if roster else maximum
         try:
             with httpx.stream("GET", url, follow_redirects=False, timeout=60, trust_env=False) as response:
                 response.raise_for_status()
@@ -86,6 +94,7 @@ class Services:
     def import_batch(
         self, owner_id, name, meet_name, photos, gallery_url, roster_html, roster_url, import_id=None
     ) -> Batch:
+        limits = effective_settings(self.store, self.settings)
         if import_id:
             try:
                 return self.store.get(owner_id, import_id)
@@ -115,18 +124,18 @@ class Services:
             for remote_photo in remote:
                 data = self.fetch(remote_photo.source_url)
                 total += len(data)
-                if total > self.settings.max_batch_bytes:
+                if total > limits.max_batch_bytes:
                     raise WorkflowError("Batch exceeds the configured size limit")
                 photos.append(InputPhoto(remote_photo.name, data, remote_photo.destination, remote_photo.description))
             name = (name or "").strip() or album_name
         if not photos:
             raise WorkflowError("The batch contains no photos")
-        if sum(len(p.data) for p in photos) > self.settings.max_batch_bytes:
+        if sum(len(p.data) for p in photos) > limits.max_batch_bytes:
             raise WorkflowError("Batch exceeds the configured size limit")
         # Reject invalid images before storing the batch or its bytes.
         checked = []
         for photo in photos:
-            if len(photo.data) > self.settings.max_file_bytes:
+            if len(photo.data) > limits.max_file_bytes:
                 raise WorkflowError(f"Image exceeds the size limit: {PurePath(photo.name).name}")
             try:
                 with Image.open(BytesIO(photo.data)) as image:
@@ -290,19 +299,7 @@ class Services:
                 if record is None:
                     raise Conflict("Analyze the photo before correcting subjects or discipline")
                 if "discipline" in fields:
-                    if not isinstance(record.event, AthleticsEvent):
-                        raise WorkflowError("This discipline editor supports athletics")
-                    record.event.discipline = (
-                        Confident[AthleticsDiscipline](
-                            value=AthleticsDiscipline(patch.discipline),
-                            confidence=1,
-                            source=Source.MANUAL,
-                            note="discipline selected in review",
-                        )
-                        if patch.discipline is not None
-                        else None
-                    )
-                    record.event.custom_kind = record.event.custom_label = None
+                    self._set_discipline(photo, patch.discipline)
                 if fields & {"bib", "athlete_name", "roster_bib", "club"}:
                     if patch.subject is None or not 0 <= patch.subject < len(record.subjects):
                         raise WorkflowError("Select a valid subject")
@@ -354,6 +351,76 @@ class Services:
             photo.changed()
             self.store.save(session, batch)
             return photo
+
+    @staticmethod
+    def _set_discipline(photo, discipline):
+        record = photo.analysis.record
+        if not isinstance(record.event, AthleticsEvent):
+            raise WorkflowError("This discipline editor supports athletics")
+        record.event.discipline = (
+            Confident[AthleticsDiscipline](
+                value=discipline,
+                confidence=1,
+                source=Source.MANUAL,
+                note="discipline selected in review",
+            )
+            if discipline is not None
+            else None
+        )
+        record.event.custom_kind = record.event.custom_label = None
+        photo.proposal = record.description = build_description(record)
+        if not photo.caption_edited:
+            photo.caption = photo.proposal
+
+    def _discipline_changes(self, batch, request):
+        ids = [selection.photo_id for selection in request.photos]
+        if len(set(ids)) != len(ids):
+            raise WorkflowError("Select each photo only once")
+        changes, updated = [], []
+        for selection in request.photos:
+            photo = batch.photo(selection.photo_id)
+            if photo.revision != selection.revision:
+                raise Conflict("A selected photo changed; reload and preview the discipline changes again")
+            if photo.analysis is None:
+                raise Conflict("Analyze all selected photos before assigning a discipline")
+            after = photo.model_copy(deep=True)
+            self._set_discipline(after, request.discipline)
+            before = photo.analysis.record.event.discipline
+            changed = after != photo
+            changes.append(
+                DisciplineChange(
+                    photo_id=photo.id,
+                    revision=photo.revision,
+                    display_name=photo.display_name,
+                    before_discipline=before.value if before else None,
+                    manual_discipline=bool(before and before.source is Source.MANUAL),
+                    before_caption=photo.caption,
+                    after_caption=after.caption,
+                    caption_preserved=photo.caption_edited,
+                    changed=changed,
+                )
+            )
+            if changed:
+                after.changed()
+            updated.append(after)
+        return DisciplinePreview(discipline=request.discipline, photos=changes), updated
+
+    def preview_discipline(self, owner_id, batch_id, request):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            preview, _ = self._discipline_changes(batch, request)
+            return preview
+
+    def assign_discipline(self, owner_id, batch_id, request):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            _, updated = self._discipline_changes(batch, request)
+            by_id = {photo.id: photo for photo in updated}
+            batch.photos = [by_id.get(photo.id, photo) for photo in batch.photos]
+            self.store.save(session, batch)
+            return updated
 
     def approve(self, owner_id, batch_id, selected):
         with self.store.transaction(owner_id) as session:

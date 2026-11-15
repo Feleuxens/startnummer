@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Administration */
+        get: operations["get_administration_api_admin_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Settings */
+        put: operations["update_settings_api_admin_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session": {
         parameters: {
             query?: never;
@@ -212,6 +246,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/{batch_id}/discipline-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Discipline */
+        post: operations["preview_discipline_api_batches__batch_id__discipline_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/discipline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assign Discipline */
+        post: operations["assign_discipline_api_batches__batch_id__discipline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}/approve": {
         parameters: {
             query?: never;
@@ -392,6 +460,19 @@ export interface components {
             revision: number;
             /** Roster Index */
             roster_index: number;
+        };
+        /** Administration */
+        Administration: {
+            /** Database */
+            database: boolean;
+            /** Storage */
+            storage: boolean;
+            worker: components["schemas"]["WorkerHealth"];
+            /** Jobs */
+            jobs: {
+                [key: string]: number;
+            };
+            settings: components["schemas"]["RuntimeSettings"];
         };
         /** Album */
         Album: {
@@ -652,6 +733,35 @@ export interface components {
             /** Page Url */
             page_url: string;
         };
+        /** DisciplineAssignment */
+        DisciplineAssignment: {
+            /** Photos */
+            photos: components["schemas"]["Selection"][];
+            discipline: components["schemas"]["AthleticsDiscipline"];
+        };
+        /** DisciplineChange */
+        DisciplineChange: {
+            /**
+             * Photo Id
+             * Format: uuid
+             */
+            photo_id: string;
+            /** Revision */
+            revision: number;
+            /** Display Name */
+            display_name: string;
+            before_discipline: components["schemas"]["AthleticsDiscipline"] | null;
+            /** Manual Discipline */
+            manual_discipline: boolean;
+            /** Before Caption */
+            before_caption: string | null;
+            /** After Caption */
+            after_caption: string | null;
+            /** Caption Preserved */
+            caption_preserved: boolean;
+            /** Changed */
+            changed: boolean;
+        };
         /** DisciplineOption */
         DisciplineOption: {
             value: components["schemas"]["AthleticsDiscipline"];
@@ -659,6 +769,12 @@ export interface components {
             de: string | null;
             /** En */
             en: string | null;
+        };
+        /** DisciplinePreview */
+        DisciplinePreview: {
+            discipline: components["schemas"]["AthleticsDiscipline"];
+            /** Photos */
+            photos: components["schemas"]["DisciplineChange"][];
         };
         /** Edit */
         Edit: {
@@ -1010,6 +1126,20 @@ export interface components {
             /** Revision */
             revision: number;
         };
+        /** RuntimeSettings */
+        RuntimeSettings: {
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Max File Bytes */
+            max_file_bytes: number;
+            /** Max Batch Bytes */
+            max_batch_bytes: number;
+            /** Session Ttl */
+            session_ttl: number;
+        };
         /** Selected */
         Selected: {
             /** Photos */
@@ -1031,6 +1161,11 @@ export interface components {
             username: string;
             /** Gallery Url */
             gallery_url?: string | null;
+            /**
+             * Is Admin
+             * @default true
+             */
+            is_admin: boolean;
         };
         /**
          * Source
@@ -1079,6 +1214,21 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** WorkerHealth */
+        WorkerHealth: {
+            /** Reachable */
+            reachable: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "starting" | "idle" | "busy" | "unavailable";
+            /**
+             * Active Sessions
+             * @default 0
+             */
+            active_sessions: number;
+        };
         /** WriteResult */
         WriteResult: {
             state: components["schemas"]["WriteState"];
@@ -1101,6 +1251,59 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_administration_api_admin_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Administration"];
+                };
+            };
+        };
+    };
+    update_settings_api_admin_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     session_info_api_session_get: {
         parameters: {
             query?: never;
@@ -1589,6 +1792,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Photo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_discipline_api_batches__batch_id__discipline_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisciplineAssignment"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisciplinePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_discipline_api_batches__batch_id__discipline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisciplineAssignment"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"][];
                 };
             };
             /** @description Validation Error */

@@ -59,6 +59,11 @@ class FaceSessions:
         with self._lock:
             self._prune()
 
+    def count(self):
+        with self._lock:
+            self._prune()
+            return len(self._items)
+
     def get(self, owner_id: UUID, batch_id: UUID) -> dict:
         with self._lock:
             self._prune()

@@ -4,8 +4,8 @@ import argparse
 import hmac
 import json
 import os
+import signal
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,12 +29,14 @@ class Worker:
         self.store, self.blobs, self.sessions = store, blobs, sessions
         self.detector, self.ocr, self.faces = detector, ocr, faces
         self.lease_seconds = lease_seconds
+        self.state = "idle"
 
     def run_once(self) -> bool:
         job = self.store.claim(self.lease_seconds)
         if job is None:
             self.sessions.expire()
             return False
+        self.state = "busy"
         stopped = threading.Event()
         lost = threading.Event()
         progress = {"completed": 0, "phase": "staging"}
@@ -59,6 +61,7 @@ class Worker:
         finally:
             stopped.set()
             renewal.join(timeout=5)
+            self.state = "idle"
         return True
 
     def _execute(self, job: Job, progress, lost):
@@ -131,6 +134,8 @@ class Worker:
         if lost.is_set():
             raise Conflict("Worker lease was lost")
 
+        _, options = self.store.runtime_settings(job.owner_id)
+
         def merge(current):
             retained = Services.merge_analysis(current, results)
             for photo_id in retained:
@@ -138,12 +143,13 @@ class Worker:
                 geometry.pop(str(photo_id), None)
             # Hold the batch lock while exposing face geometry so completion
             # cannot recreate a session that review has already closed.
+            self.sessions.ttl = options.get("session_ttl", self.sessions.ttl)
             self.sessions.put(job.owner_id, job.batch_id, geometry, run_id=str(job.lease_token))
 
         self.store.complete(job, merge)
 
 
-def session_server(sessions: FaceSessions, secret: str, port: int):
+def session_server(sessions: FaceSessions, secret: str, port: int, *, state=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass  # Never log transient face payloads or authorization headers.
@@ -160,6 +166,15 @@ def session_server(sessions: FaceSessions, secret: str, port: int):
         def handle_session(self, finish, edit=False):
             if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + secret):
                 self.send_error(401)
+                return
+            if self.path == "/health" and self.command == "GET":
+                data = json.dumps({"state": state() if state else "idle", "active_sessions": sessions.count()}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
                 return
             parts = self.path.split("/")
             try:
@@ -240,15 +255,19 @@ def main():
 
         faces = InsightFaceEngine()
     worker = Worker(store, blobs, sessions, YoloDetector(), RapidOcrReader(), faces)
-    server = session_server(sessions, secret, int(os.environ.get("STARTNUMMER_WORKER_PORT", "8766")))
+    server = session_server(
+        sessions, secret, int(os.environ.get("STARTNUMMER_WORKER_PORT", "8766")), state=lambda: worker.state
+    )
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    stopped = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     try:
         if args.once:
             worker.run_once()
         else:
-            while True:
+            while not stopped.is_set():
                 if not worker.run_once():
-                    time.sleep(1)
+                    stopped.wait(1)
     except KeyboardInterrupt:
         pass
     finally:

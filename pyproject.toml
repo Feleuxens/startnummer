@@ -34,6 +34,7 @@ api = [
     "pillow==12.3.0",
     "pymysql==1.2.0",
     "python-multipart>=0.0.20,<1",
+    "python-dotenv==1.2.2",
 ]
 
 # Analysis worker. Add the ocr and face extras for inference.
@@ -75,6 +76,7 @@ vlm = [
 ]
 
 [project.scripts]
+startnummer = "startnummer.app.manage:main"
 startnummer-worker = "startnummer.app.worker:main"
 startnummer-api = "startnummer.app.api:main"
 

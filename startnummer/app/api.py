@@ -18,10 +18,13 @@ from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import HttpFaceSessions, propagation_problem
 from startnummer.app.contracts import (
     AddPerson,
+    Administration,
     BatchSummary,
     BatchView,
     ChangePreview,
+    DisciplineAssignment,
     DisciplineOption,
+    DisciplinePreview,
     Edit,
     FaceView,
     Login,
@@ -30,9 +33,11 @@ from startnummer.app.contracts import (
     PropagationRequest,
     PropagationUndo,
     Revision,
+    RuntimeSettings,
     Selected,
     SessionInfo,
 )
+from startnummer.app.operations import administration, database_healthy, effective_settings, storage_healthy
 from startnummer.app.services import InputPhoto, Services, run
 from startnummer.app.settings import Settings
 from startnummer.core.batch import Batch, Conflict, Job, Missing, Photo, Publication, WorkflowError, WriteResult
@@ -94,6 +99,27 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
 
     Owner = Annotated[UUID, Depends(principal)]
 
+    @app.get("/api/health/live", include_in_schema=False)
+    def live():
+        return {"alive": True}
+
+    @app.get("/api/health/ready", include_in_schema=False)
+    def ready(response: Response):
+        database = database_healthy(store)
+        storage = storage_healthy(settings.blob_root)
+        healthy = database and storage
+        response.status_code = 200 if healthy else 503
+        return {"ready": healthy, "database": database, "storage": storage}
+
+    @app.get("/api/admin", response_model=Administration)
+    def get_administration(owner: Owner):
+        return administration(store, settings)
+
+    @app.put("/api/admin/settings", response_model=RuntimeSettings)
+    def update_settings(body: RuntimeSettings, owner: Owner):
+        revision = store.save_settings(owner, body.revision, body.model_dump(exclude={"revision"}))
+        return body.model_copy(update={"revision": revision})
+
     async def validate_import_fields(request: Request):
         form = await request.form()
         allowed = {"import_id", "name", "meet_name", "gallery_url", "roster_url", "roster_file", "photos"}
@@ -145,12 +171,13 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
         roster_file: Annotated[UploadFile | None, File()] = None,
         photos: Annotated[list[UploadFile] | None, File()] = None,
     ):
+        limits = effective_settings(store, settings)
         inputs = []
         total = 0
         for photo in photos or []:
-            data = photo.file.read(settings.max_file_bytes + 1)
+            data = photo.file.read(limits.max_file_bytes + 1)
             total += len(data)
-            if len(data) > settings.max_file_bytes or total > settings.max_batch_bytes:
+            if len(data) > limits.max_file_bytes or total > limits.max_batch_bytes:
                 raise WorkflowError("Upload exceeds the configured size limit")
             inputs.append(InputPhoto(photo.filename or "photo", data))
         html = roster_file.file.read(10 * 1024 * 1024 + 1) if roster_file else None
@@ -215,6 +242,14 @@ def create_app(settings: Settings | None = None, *, store=None, blobs=None, sess
     @app.delete("/api/batches/{batch_id}/photos/{photo_id}/subjects/{subject_index}", response_model=Photo)
     def remove_person(batch_id: UUID, photo_id: UUID, subject_index: int, body: Revision, owner: Owner):
         return service.remove_person(owner, batch_id, photo_id, subject_index, body.revision)
+
+    @app.post("/api/batches/{batch_id}/discipline-preview", response_model=DisciplinePreview)
+    def preview_discipline(batch_id: UUID, body: DisciplineAssignment, owner: Owner):
+        return service.preview_discipline(owner, batch_id, body)
+
+    @app.post("/api/batches/{batch_id}/discipline", response_model=list[Photo])
+    def assign_discipline(batch_id: UUID, body: DisciplineAssignment, owner: Owner):
+        return service.assign_discipline(owner, batch_id, body)
 
     @app.post("/api/batches/{batch_id}/approve")
     def approve(batch_id: UUID, body: Selected, owner: Owner) -> dict:

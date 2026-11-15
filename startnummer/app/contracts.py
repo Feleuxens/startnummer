@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from startnummer.core.batch import Batch, DescriptionWrite, Job, Publication
 from startnummer.core.sports.athletics import AthleticsDiscipline
@@ -22,6 +22,34 @@ class Login(Input):
 class SessionInfo(BaseModel):
     username: str
     gallery_url: str | None = None
+    is_admin: bool = True
+
+
+class RuntimeSettings(Input):
+    revision: int = Field(default=0, ge=0)
+    max_file_bytes: int = Field(ge=1024 * 1024, le=500 * 1024 * 1024)
+    max_batch_bytes: int = Field(ge=1024 * 1024, le=100 * 1024 * 1024 * 1024)
+    session_ttl: int = Field(ge=60, le=86400)
+
+    @model_validator(mode="after")
+    def batch_contains_file(self):
+        if self.max_batch_bytes < self.max_file_bytes:
+            raise ValueError("Batch limit must be at least the per-photo limit")
+        return self
+
+
+class WorkerHealth(BaseModel):
+    reachable: bool
+    state: Literal["starting", "idle", "busy", "unavailable"]
+    active_sessions: int = 0
+
+
+class Administration(BaseModel):
+    database: bool
+    storage: bool
+    worker: WorkerHealth
+    jobs: dict[str, int]
+    settings: RuntimeSettings
 
 
 class BatchSummary(BaseModel):
@@ -44,6 +72,27 @@ class Selection(Input):
 
 class Selected(Input):
     photos: list[Selection] = Field(min_length=1)
+
+
+class DisciplineAssignment(Selected):
+    discipline: AthleticsDiscipline
+
+
+class DisciplineChange(BaseModel):
+    photo_id: UUID
+    revision: int
+    display_name: str
+    before_discipline: AthleticsDiscipline | None
+    manual_discipline: bool
+    before_caption: str | None
+    after_caption: str | None
+    caption_preserved: bool
+    changed: bool
+
+
+class DisciplinePreview(BaseModel):
+    discipline: AthleticsDiscipline
+    photos: list[DisciplineChange]
 
 
 class Revision(Input):

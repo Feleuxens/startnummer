@@ -5,6 +5,62 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/admin": {
+      "get": {
+        "summary": "Get Administration",
+        "operationId": "get_administration_api_admin_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Administration"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/settings": {
+      "put": {
+        "summary": "Update Settings",
+        "operationId": "update_settings_api_admin_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/session": {
       "get": {
         "summary": "Session Info",
@@ -683,6 +739,110 @@
         }
       }
     },
+    "/api/batches/{batch_id}/discipline-preview": {
+      "post": {
+        "summary": "Preview Discipline",
+        "operationId": "preview_discipline_api_batches__batch_id__discipline_preview_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisciplineAssignment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisciplinePreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/discipline": {
+      "post": {
+        "summary": "Assign Discipline",
+        "operationId": "assign_discipline_api_batches__batch_id__discipline_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisciplineAssignment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Photo"
+                  },
+                  "title": "Response Assign Discipline Api Batches  Batch Id  Discipline Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/batches/{batch_id}/approve": {
       "post": {
         "summary": "Approve",
@@ -1178,6 +1338,40 @@
           "roster_index"
         ],
         "title": "AddPerson"
+      },
+      "Administration": {
+        "properties": {
+          "database": {
+            "type": "boolean",
+            "title": "Database"
+          },
+          "storage": {
+            "type": "boolean",
+            "title": "Storage"
+          },
+          "worker": {
+            "$ref": "#/components/schemas/WorkerHealth"
+          },
+          "jobs": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Jobs"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/RuntimeSettings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "database",
+          "storage",
+          "worker",
+          "jobs",
+          "settings"
+        ],
+        "title": "Administration"
       },
       "Album": {
         "properties": {
@@ -1962,6 +2156,102 @@
         ],
         "title": "Destination"
       },
+      "DisciplineAssignment": {
+        "properties": {
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/Selection"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Photos"
+          },
+          "discipline": {
+            "$ref": "#/components/schemas/AthleticsDiscipline"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "photos",
+          "discipline"
+        ],
+        "title": "DisciplineAssignment"
+      },
+      "DisciplineChange": {
+        "properties": {
+          "photo_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Photo Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "before_discipline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AthleticsDiscipline"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manual_discipline": {
+            "type": "boolean",
+            "title": "Manual Discipline"
+          },
+          "before_caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Caption"
+          },
+          "after_caption": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Caption"
+          },
+          "caption_preserved": {
+            "type": "boolean",
+            "title": "Caption Preserved"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "photo_id",
+          "revision",
+          "display_name",
+          "before_discipline",
+          "manual_discipline",
+          "before_caption",
+          "after_caption",
+          "caption_preserved",
+          "changed"
+        ],
+        "title": "DisciplineChange"
+      },
       "DisciplineOption": {
         "properties": {
           "value": {
@@ -1997,6 +2287,26 @@
           "en"
         ],
         "title": "DisciplineOption"
+      },
+      "DisciplinePreview": {
+        "properties": {
+          "discipline": {
+            "$ref": "#/components/schemas/AthleticsDiscipline"
+          },
+          "photos": {
+            "items": {
+              "$ref": "#/components/schemas/DisciplineChange"
+            },
+            "type": "array",
+            "title": "Photos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "discipline",
+          "photos"
+        ],
+        "title": "DisciplinePreview"
       },
       "Edit": {
         "properties": {
@@ -2889,6 +3199,42 @@
         ],
         "title": "Revision"
       },
+      "RuntimeSettings": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
+          },
+          "max_file_bytes": {
+            "type": "integer",
+            "maximum": 524288000.0,
+            "minimum": 1048576.0,
+            "title": "Max File Bytes"
+          },
+          "max_batch_bytes": {
+            "type": "integer",
+            "maximum": 107374182400.0,
+            "minimum": 1048576.0,
+            "title": "Max Batch Bytes"
+          },
+          "session_ttl": {
+            "type": "integer",
+            "maximum": 86400.0,
+            "minimum": 60.0,
+            "title": "Session Ttl"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "max_file_bytes",
+          "max_batch_bytes",
+          "session_ttl"
+        ],
+        "title": "RuntimeSettings"
+      },
       "Selected": {
         "properties": {
           "photos": {
@@ -2944,6 +3290,11 @@
               }
             ],
             "title": "Gallery Url"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin",
+            "default": true
           }
         },
         "type": "object",
@@ -3057,6 +3408,35 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkerHealth": {
+        "properties": {
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "idle",
+              "busy",
+              "unavailable"
+            ],
+            "title": "State"
+          },
+          "active_sessions": {
+            "type": "integer",
+            "title": "Active Sessions",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "reachable",
+          "state"
+        ],
+        "title": "WorkerHealth"
       },
       "WriteResult": {
         "properties": {

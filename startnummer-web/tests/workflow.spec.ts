@@ -11,6 +11,356 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();
 }
 
+test('administrator sees service status and saves revision-checked settings', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'Administration', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
+  const file = page.getByRole('spinbutton', { name: 'Maximum photo size (MiB)', exact: true });
+  const batch = page.getByRole('spinbutton', { name: 'Maximum batch size (MiB)', exact: true });
+  const lifetime = page.getByRole('spinbutton', {
+    name: 'Face-session lifetime (minutes)',
+    exact: true,
+  });
+  await expect(file).toHaveValue('50');
+  await expect(lifetime).toHaveValue('60');
+  await expect(page.locator('.service-status')).toContainText('Writable');
+  await expect(page.locator('.service-status')).toContainText('idle');
+  const original = (await (await page.request.get('/api/admin')).json()).settings;
+  await file.fill('2');
+  await batch.fill('8');
+  await lifetime.fill('30');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: /^Saved albums/ }).click();
+  await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Settings saved.' })).toBeVisible();
+  const saved = (await (await page.request.get('/api/admin')).json()).settings;
+  expect(saved.max_file_bytes).toBe(2 * 1024 * 1024);
+  expect(saved.max_batch_bytes).toBe(8 * 1024 * 1024);
+  expect(saved.session_ttl).toBe(1800);
+  await lifetime.fill('20');
+  const concurrent = await page.request.put('/api/admin/settings', {
+    headers: { 'X-Requested-With': 'Startnummer' },
+    data: { ...saved, session_ttl: 900 },
+  });
+  expect(concurrent.ok()).toBe(true);
+  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Settings changed');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Reload settings', exact: true }).click();
+  await expect(lifetime).toHaveValue('15');
+  await page
+    .locator('.administration')
+    .screenshot({ path: test.info().outputPath('administration-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page
+    .locator('.administration')
+    .screenshot({ path: test.info().outputPath('administration-mobile.png') });
+  const current = (await (await page.request.get('/api/admin')).json()).settings;
+  expect(
+    (
+      await page.request.put('/api/admin/settings', {
+        headers: { 'X-Requested-With': 'Startnummer' },
+        data: { ...original, revision: current.revision },
+      })
+    ).ok(),
+  ).toBe(true);
+});
+
+async function disciplineBatch(page: Page) {
+  await login(page);
+  const seed = await page.request.post('/api/batches', {
+    headers: { 'X-Requested-With': 'Startnummer' },
+    multipart: {
+      gallery_url: 'http://gallery.test/album/a',
+      roster_file: { name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(html) },
+    },
+  });
+  expect(seed.ok()).toBe(true);
+  const imageId = (await seed.json()).photos[0].id;
+  const bytes = await (await page.request.get(`/api/photos/${imageId}`)).body();
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Upload images', { exact: true }).check();
+  await page.getByLabel('Image files').setInputFiles(
+    [1, 2, 3, 4, 5, 6].map((index) => ({
+      name: `sequence-${index}.jpg`,
+      mimeType: 'image/jpeg',
+      buffer: bytes,
+    })),
+  );
+  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+    name: 'roster.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from(html),
+  });
+  await page.getByLabel('Album name', { exact: true }).fill('Discipline sequences');
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+  await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled({
+    timeout: 15000,
+  });
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const read = async (): Promise<components['schemas']['BatchView']> =>
+    (await page.request.get(`/api/batches/${batchId}`)).json();
+  const batch = (await read()).batch;
+  for (const [index, photo] of batch.photos.entries()) {
+    const response = await page.request.patch(`/api/batches/${batchId}/photos/${photo.id}`, {
+      headers: { 'X-Requested-With': 'Startnummer' },
+      data: {
+        revision: photo.revision,
+        discipline: index === 5 ? 'no_event' : null,
+        ...(index === 2 ? { caption: 'Keep my caption' } : {}),
+      },
+    });
+    expect(response.ok()).toBe(true);
+  }
+  const photos = (await read()).batch.photos;
+  expect(
+    (
+      await page.request.post(`/api/batches/${batchId}/approve`, {
+        headers: { 'X-Requested-With': 'Startnummer' },
+        data: { photos: photos.map((photo) => ({ photo_id: photo.id, revision: photo.revision })) },
+      })
+    ).ok(),
+  ).toBe(true);
+  await page.reload();
+  await expect(
+    page.getByText('6 photos · 1 roster entries · 6 approved', { exact: true }),
+  ).toBeVisible();
+  return { batchId, read };
+}
+
+test('select sequences, preview captions, and assign a discipline outside the roster', async ({
+  page,
+}) => {
+  const { read } = await disciplineBatch(page);
+  const before = (await read()).batch.photos;
+  const check = (index: number) =>
+    page.getByRole('checkbox', { name: `Select sequence-${index}.jpg`, exact: true });
+  await page.getByRole('button', { name: 'Select photos', exact: true }).click();
+  await check(1).check();
+  await check(4).click({ modifiers: ['Shift'] });
+  await expect(page.getByRole('status').filter({ hasText: '4 selected' })).toBeVisible();
+  await check(2).uncheck();
+  await expect(page.getByRole('status').filter({ hasText: '3 selected' })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Show', exact: true }).selectOption('undetermined');
+  await expect(page.getByRole('status').filter({ hasText: '0 selected' })).toBeVisible();
+  await expect(check(6)).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /^Select sequence-/ })).toHaveCount(5);
+  await page.getByRole('combobox', { name: 'From photo', exact: true }).selectOption(before[1]!.id);
+  await page
+    .getByRole('combobox', { name: 'Through photo', exact: true })
+    .selectOption(before[3]!.id);
+  await page.getByRole('button', { name: 'Select range', exact: true }).click();
+  await expect(check(2)).toBeChecked();
+  await expect(check(3)).toBeChecked();
+  await expect(check(4)).toBeChecked();
+  await expect(check(1)).not.toBeChecked();
+  await page.getByRole('button', { name: 'Assign discipline…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Assign discipline to 3 photos', exact: true });
+  const chooser = dialog.getByRole('combobox', { name: 'Discipline for selected photos' });
+  await expect(
+    chooser.locator('optgroup[label="Entered by people in these photos"] option'),
+  ).toHaveCount(1);
+  await expect(
+    chooser.locator('optgroup[label="All disciplines"] option[value="high_jump"]'),
+  ).toHaveCount(1);
+  await chooser.selectOption('high_jump');
+  await dialog.getByRole('button', { name: 'Preview caption changes', exact: true }).click();
+  await expect(dialog.getByText('Manually edited caption kept', { exact: true })).toBeVisible();
+  await expect(dialog).toContainText('Hochsprung / High jump');
+  await expect(dialog).toContainText('Keep my caption');
+  expect((await read()).batch.photos).toEqual(before);
+  await dialog.screenshot({ path: test.info().outputPath('discipline-preview-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await dialog.screenshot({ path: test.info().outputPath('discipline-preview-mobile.png') });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect((await read()).batch.photos).toEqual(before);
+  await page.getByRole('button', { name: 'Assign discipline…', exact: true }).click();
+  await chooser.selectOption('high_jump');
+  await dialog.getByRole('button', { name: 'Preview caption changes', exact: true }).click();
+  await chooser.selectOption('long_jump');
+  await expect(dialog.getByRole('button', { name: 'Assign to 3 photos', exact: true })).toHaveCount(
+    0,
+  );
+  await chooser.selectOption('high_jump');
+  await dialog.getByRole('button', { name: 'Preview caption changes', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Assign to 3 photos', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const after = (await read()).batch.photos;
+  for (const index of [1, 2, 3]) {
+    expect(after[index]!.analysis?.record.event.discipline?.value).toBe('high_jump');
+    expect(after[index]!.approved_revision).toBeNull();
+    expect(after[index]!.revision).toBe(before[index]!.revision + 1);
+  }
+  expect(after[2]!.caption).toBe('Keep my caption');
+  expect(after[1]!.caption).toContain('Hochsprung');
+  for (const index of [0, 4, 5]) expect(after[index]).toEqual(before[index]);
+  await expect(page.getByRole('checkbox', { name: /^Select sequence-/ })).toHaveCount(2);
+  await page.getByRole('combobox', { name: 'Show', exact: true }).selectOption('all');
+  await page.getByRole('combobox', { name: 'From photo', exact: true }).selectOption(after[0]!.id);
+  await page
+    .getByRole('combobox', { name: 'Through photo', exact: true })
+    .selectOption(after[1]!.id);
+  await page.getByRole('button', { name: 'Select range', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '2 selected' })).toBeVisible();
+  await page
+    .locator('[aria-label="Select photos for discipline"]')
+    .screenshot({ path: test.info().outputPath('discipline-range-mobile.png') });
+});
+
+test('bulk discipline refuses unsaved edits and stale previews', async ({ page }) => {
+  const { batchId, read } = await disciplineBatch(page);
+  await page
+    .getByRole('textbox', { name: 'Reviewed caption', exact: true })
+    .fill('Unsaved caption');
+  await page.getByRole('button', { name: 'Select photos', exact: true }).click();
+  await page.getByRole('button', { name: 'Select range', exact: true }).click();
+  await page.getByRole('button', { name: 'Assign discipline…', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Save the current photo');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save caption and corrections', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Changes saved for sequence-1.jpg.' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Assign discipline…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Assign discipline to 6 photos', exact: true });
+  await dialog
+    .getByRole('combobox', { name: 'Discipline for selected photos' })
+    .selectOption('no_event');
+  await dialog.getByRole('button', { name: 'Preview caption changes', exact: true }).click();
+  await expect(
+    dialog.getByRole('button', { name: 'Assign to 5 photos', exact: true }),
+  ).toBeVisible();
+  const photo = (await read()).batch.photos[4]!;
+  const response = await page.request.patch(`/api/batches/${batchId}/photos/${photo.id}`, {
+    headers: { 'X-Requested-With': 'Startnummer' },
+    data: { revision: photo.revision, caption: 'Newer edit from another tab' },
+  });
+  expect(response.ok()).toBe(true);
+  const before = (await read()).batch.photos;
+  await dialog.getByRole('button', { name: 'Assign to 5 photos', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('A selected photo changed');
+  expect((await read()).batch.photos).toEqual(before);
+  await expect(dialog.getByRole('button', { name: 'Assign to 5 photos', exact: true })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+});
+
+test('search face assignments by bib, name, and club without changing the saved identity', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
+  const roster = [
+    html,
+    ...[
+      ['77', 'North Terry', 'Riverside AC'],
+      ['78', 'West Morgan', 'Riverside AC'],
+      ['79', 'East Rowan', 'Hill Runners'],
+    ].map(([bib, name, club]) =>
+      html
+        .replace('<div>12</div>', `<div>${bib}</div>`)
+        .replace('Example Alex', name!)
+        .replace('Example Club', club!),
+    ),
+  ].join('');
+  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+    name: 'roster.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from(roster),
+  });
+  await page.getByLabel('Album name', { exact: true }).fill('Search roster athletes');
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+  await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled({
+    timeout: 15000,
+  });
+  await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Unapprove this photo', exact: true }),
+  ).toBeVisible();
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const read = async (): Promise<components['schemas']['BatchView']> =>
+    (await page.request.get(`/api/batches/${batchId}`)).json();
+  const before = (await read()).batch.photos;
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: 'Search roster athletes', exact: true });
+  const assign = page.getByRole('combobox', { name: 'Assign roster athlete', exact: true });
+  const save = page.getByRole('button', { name: 'Save caption and corrections', exact: true });
+  await search.fill('  RIVERSIDE  ');
+  await expect(assign.getByRole('option')).toHaveCount(3);
+  await expect(
+    assign.getByRole('option', { name: '77 · Terry North · Riverside AC', exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    assign.getByRole('option', { name: '78 · Morgan West · Riverside AC', exact: true }),
+  ).toHaveCount(1);
+  await search.fill('terry');
+  await expect(assign.getByRole('option')).toHaveCount(2);
+  await search.fill('78');
+  await expect(
+    assign.getByRole('option', { name: '78 · Morgan West · Riverside AC', exact: true }),
+  ).toHaveCount(1);
+  await search.fill('missing club');
+  await expect(
+    page.getByText('No roster athletes match this search.', { exact: true }),
+  ).toBeVisible();
+  await expect(assign.getByRole('option')).toHaveCount(1);
+  await expect(save).toBeDisabled();
+  await search.press('Enter');
+  expect((await read()).batch.photos).toEqual(before);
+
+  await search.fill('77 riverside');
+  await assign.selectOption('77');
+  await expect(save).toBeEnabled();
+  await search.fill('Hill');
+  await expect(assign).toHaveValue('77');
+  await expect(assign.locator('optgroup[label="Selected athlete"]')).toContainText('Terry North');
+  await search.fill('missing club');
+  await expect(assign).toHaveValue('77');
+  await expect(
+    page.getByText('No roster athletes match this search.', { exact: true }),
+  ).toBeVisible();
+  expect((await read()).batch.photos).toEqual(before);
+  await search.fill('Riverside');
+  const editor = page.locator('.subject-editor').filter({ has: search });
+  await editor.screenshot({ path: test.info().outputPath('roster-search-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('region', { name: 'Photo queue' }).getByRole('button').first().click();
+  await expect(search).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await editor.screenshot({ path: test.info().outputPath('roster-search-mobile.png') });
+  await save.click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Changes saved for same.jpg.' }),
+  ).toBeVisible();
+  const after = (await read()).batch.photos;
+  expect(after[0]!.analysis?.record.subjects[0]?.athlete?.value.name).toBe('Terry North');
+  expect(after[0]!.analysis?.record.subjects[0]?.athlete?.value.club).toBe('Riverside AC');
+  expect(after[0]!.analysis?.record.subjects[0]?.athlete?.value.entered_events).toEqual(['100m']);
+  expect(after[0]!.analysis?.record.subjects[0]?.athlete?.source).toBe('manual');
+  expect(after[0]!.analysis?.record.subjects).toHaveLength(1);
+  expect(after[0]!.approved_revision).toBeNull();
+  expect(after[1]).toEqual(before[1]);
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await search.fill('Hill');
+  await page.getByRole('button', { name: 'Next photo', exact: true }).click();
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await expect(search).toHaveValue('');
+});
+
 test('import, analyze, name an individual face, save, reopen, approve, apply, and restore', async ({
   page,
 }) => {

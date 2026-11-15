@@ -2,6 +2,7 @@
 
 import threading
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -14,7 +15,7 @@ from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.app.api import create_app
 from startnummer.app.settings import Settings
-from startnummer.app.worker import Worker
+from startnummer.app.worker import Worker, session_server
 from tests.test_workflow import HTML, Detector, Faces, FakeGallery, Ocr, image_bytes
 
 
@@ -36,6 +37,9 @@ def create_fixture():
         chevereto_url="http://gallery.test",
         roster_hosts=("roster.test",),
     )
+    worker = Worker(store, blobs, sessions, Detector(), Ocr(), Faces())
+    private_server = session_server(sessions, settings.worker_secret, 0, state=lambda: worker.state)
+    settings = replace(settings, worker_url=f"http://127.0.0.1:{private_server.server_port}")
     app = create_app(
         settings,
         store=store,
@@ -44,7 +48,6 @@ def create_fixture():
         gallery=FakeGallery(),
         fetch=lambda url, roster=False: HTML if roster else image_bytes(),
     )
-    worker = Worker(store, blobs, sessions, Detector(), Ocr(), Faces())
     stopped = threading.Event()
 
     def work():
@@ -55,9 +58,14 @@ def create_fixture():
     async def lifespan(app):
         thread = threading.Thread(target=work, daemon=True)
         thread.start()
+        private_thread = threading.Thread(target=private_server.serve_forever, daemon=True)
+        private_thread.start()
         yield
         stopped.set()
         thread.join(timeout=5)
+        private_server.shutdown()
+        private_server.server_close()
+        private_thread.join(timeout=5)
         engine.dispose()
         directory.cleanup()
 

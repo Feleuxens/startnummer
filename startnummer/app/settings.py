@@ -45,4 +45,6 @@ class Settings:
             chevereto_dsn=os.environ.get("STARTNUMMER_CHEVERETO_DSN"),
             cookie_secure=os.environ.get("STARTNUMMER_COOKIE_SECURE", "0") == "1",
             session_ttl=int(os.environ.get("STARTNUMMER_FACE_SESSION_TTL", "3600")),
+            max_file_bytes=int(os.environ.get("STARTNUMMER_MAX_FILE_BYTES", str(50 * 1024 * 1024))),
+            max_batch_bytes=int(os.environ.get("STARTNUMMER_MAX_BATCH_BYTES", str(2 * 1024 * 1024 * 1024))),
         )

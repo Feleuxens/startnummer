@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Engine, and_, delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from startnummer.adapters.db.schema import BatchRow, BlobGarbageRow, JobRow, PhotoRow, PublicationRow
+from startnummer.adapters.db.schema import BatchRow, BlobGarbageRow, JobRow, PhotoRow, PublicationRow, SettingsRow
 from startnummer.core.batch import Batch, Conflict, Job, JobState, Missing, Photo, Publication, now
 from startnummer.core.enums import Status
 
@@ -16,6 +16,25 @@ from startnummer.core.enums import Status
 class Store:
     def __init__(self, engine: Engine):
         self.engine = engine
+
+    def runtime_settings(self, owner_id, *, session=None):
+        if session is None:
+            with self.transaction() as current:
+                return self.runtime_settings(owner_id, session=current)
+        row = session.get(SettingsRow, owner_id)
+        return (row.revision, row.document) if row else (0, {})
+
+    def save_settings(self, owner_id, revision, document):
+        with self.transaction(owner_id) as session:
+            current, _ = self.runtime_settings(owner_id, session=session)
+            if current != revision:
+                raise Conflict("Settings changed; refresh before saving again")
+            row = session.get(SettingsRow, owner_id)
+            if row is None:
+                row = SettingsRow(owner_id=owner_id)
+                session.add(row)
+            row.revision, row.document = current + 1, document
+            return row.revision
 
     @contextmanager
     def transaction(self, owner_id: UUID | None = None) -> Iterator[Session]:
