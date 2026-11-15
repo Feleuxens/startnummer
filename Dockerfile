@@ -31,11 +31,11 @@ COPY scripts/export_openapi.py scripts/
 COPY startnummer-web/ startnummer-web/
 RUN cd startnummer-web && npm run build
 
-FROM api-deps AS worker-deps
+FROM api-deps AS worker-cpu-deps
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --extra api --extra cpu --no-install-project
 
-FROM api-deps AS worker-gpu-deps
+FROM api-deps AS worker-nvidia-deps
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --extra api --extra nvidia --no-install-project
 
@@ -62,8 +62,8 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=4 \
     CMD ["python", "-m", "startnummer.app.healthcheck", "api"]
 CMD ["python", "-m", "uvicorn", "startnummer.app.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
 
-FROM runtime AS worker
-COPY --from=worker-deps /app/.venv /app/.venv
+FROM runtime AS worker-cpu
+COPY --from=worker-cpu-deps /app/.venv /app/.venv
 ENV STARTNUMMER_MODEL_ROOT=/data/models STARTNUMMER_INFERENCE_BACKEND=cpu YOLO_CONFIG_DIR=/data/models
 WORKDIR /data/models
 RUN python - <<'PY'
@@ -77,8 +77,8 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=4 \
     CMD ["python", "-m", "startnummer.app.healthcheck", "worker"]
 CMD ["python", "-m", "startnummer.app.worker"]
 
-FROM runtime AS worker-gpu
-COPY --from=worker-gpu-deps /app/.venv /app/.venv
+FROM runtime AS worker-nvidia
+COPY --from=worker-nvidia-deps /app/.venv /app/.venv
 ENV STARTNUMMER_MODEL_ROOT=/data/models \
     YOLO_CONFIG_DIR=/data/models \
     STARTNUMMER_INFERENCE_BACKEND=cuda

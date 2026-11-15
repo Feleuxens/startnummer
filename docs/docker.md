@@ -5,15 +5,14 @@ PostgreSQL. A short-lived migration service runs before the API and worker start
 Docker manages the processes; the local `startnummer start` supervisor is not used
 inside containers. Chevereto remains an existing, separately managed installation.
 
-The default worker uses the `cpu` extra with CPU-only PyTorch. The Intel override
-selects `intel` for OpenVINO CPU inference; the NVIDIA override selects `nvidia`
-and requests one GPU. Builds use Python and npm lockfiles. Each device profile
-installs one ONNX Runtime and the active RapidOCR/InsightFace adapters. No models
-or private photos are copied from the host. See [device profiles](devices.md) for
-native installation, including CoreML/Neural Engine support on Apple silicon.
+`compose.yaml` pulls published images from GHCR. Choose `cpu`, `intel`, or `nvidia`
+with `STARTNUMMER_WORKER_VARIANT`; CPU is the default. NVIDIA also needs the
+commented GPU reservation enabled in the worker service. There are no hardware
+override files. Optional source builds use `compose.build.yaml`.
 
-The [container release guide](releases.md) describes GHCR images, release tags,
-and pulling an existing version. The commands below build from a local checkout.
+Images contain no private photos or model weights. See [device profiles](devices.md)
+for runtime details and native Apple installation, and [container releases](releases.md)
+for release and development tags.
 
 ## First start
 
@@ -40,15 +39,17 @@ print("STARTNUMMER_INTEGRATION_KEY=" + base64.urlsafe_b64encode(secrets.token_by
 
 Copy these values into `.env.docker` and set `STARTNUMMER_PASSWORD` for login.
 Use hexadecimal for `POSTGRES_PASSWORD`: Compose embeds it in a database URL.
-Set `STARTNUMMER_IMAGE_TAG=local` for these local builds. For published images,
-set it to their version and use the pull commands in the release guide.
+Set `STARTNUMMER_IMAGE_TAG` to a published version, such as `0.1.0`. `latest`
+follows the latest stable release; use `edge` to try main before the first release.
+Set `STARTNUMMER_WORKER_VARIANT=intel` for OpenVINO on the Intel server, or leave
+it at `cpu`. NVIDIA setup is described below.
 Keep `STARTNUMMER_USERNAME` stable; it determines ownership of saved records.
 Keep the configuration and encryption key separately from application backups.
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml build
-docker compose --env-file .env.docker -f compose.yaml up -d --wait
-docker compose --env-file .env.docker -f compose.yaml ps -a
+docker compose --env-file .env.docker pull
+docker compose --env-file .env.docker up -d --wait
+docker compose --env-file .env.docker ps -a
 ```
 
 The API binds to `127.0.0.1:8000` on the host. Put it behind your HTTPS reverse proxy.
@@ -58,8 +59,8 @@ For a local HTTP trial, set `STARTNUMMER_COOKIE_SECURE=0` and open
 published ports. PostgreSQL is on an internal network; the API and worker also
 have outbound access for imports and model downloads.
 
-Always pass `-f compose.yaml`: the repository's `docker-compose.yml` is the
-development gallery/database stack and must not be merged into production.
+Compose discovers `compose.yaml` automatically. The separate `compose.dev.yaml`
+contains local test databases and Chevereto; select it explicitly when needed.
 The commands use `.env.docker` for both Compose interpolation and the API's
 environment. For a different file, set `STARTNUMMER_ENV_FILE=/absolute/path/to/file`
 and pass the same path to `--env-file`.
@@ -68,6 +69,22 @@ Health checks verify API/database/storage readiness and the authenticated privat
 worker service. Models load only when an album starts analysis. A healthy worker
 does not mean weights are downloaded or that inference has been tested on the host.
 Run a small test album before processing important work.
+
+## Build from source
+
+To build this checkout instead of pulling images, set `STARTNUMMER_IMAGE_TAG=local`
+in `.env.docker`. The build override selects the worker target from the same
+`STARTNUMMER_WORKER_VARIANT` setting:
+
+```sh
+docker compose --env-file .env.docker -f compose.yaml -f compose.build.yaml build
+docker compose --env-file .env.docker up -d --wait
+```
+
+The base file then starts the locally tagged images. For source updates, run this
+build command in place of `pull` in the update procedure below. Builds use the
+Python and npm lockfiles. API, migration, and operations services share the web
+image; the selected worker is built separately.
 
 ## HTTPS proxy
 
@@ -96,39 +113,48 @@ receive the API configuration file.
 
 ## Intel OpenVINO
 
-Use the Intel override for the i7-8700 server or another Linux x86-64 CPU host:
+Set this in `.env.docker` for the i7-8700 server or another Linux x86-64 CPU host:
 
-```sh
-docker compose --env-file .env.docker -f compose.yaml -f compose.intel.yaml build
-docker compose --env-file .env.docker -f compose.yaml -f compose.intel.yaml up -d --wait
+```dotenv
+STARTNUMMER_WORKER_VARIANT=intel
 ```
 
-The worker uses OpenVINO CPU for pose, face models, and OCR. Pose weights are
-converted on first use and cached in the model volume. No Intel GPU device mapping
-is required for CPU execution. This does not promise a speedup on every processor;
-benchmark a representative album on the target server.
+Use the normal pull/start commands above. The worker uses OpenVINO CPU for pose,
+face models, and OCR. Pose weights are converted on first use and cached in the
+model volume. No Intel GPU mapping is needed for CPU execution. Benchmark a
+representative album on the target server before assuming a speedup.
 
 ## NVIDIA GPU
 
 Install a compatible NVIDIA driver and NVIDIA Container Toolkit on the Docker
-host. Use the override for every build, start, or update:
+host. Set `STARTNUMMER_WORKER_VARIANT=nvidia` in `.env.docker`, then uncomment the
+GPU reservation under `services.worker` in `compose.yaml`:
 
-```sh
-docker compose --env-file .env.docker -f compose.yaml -f compose.gpu.yaml build
-docker compose --env-file .env.docker -f compose.yaml -f compose.gpu.yaml up -d --wait
+```yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 ```
+
+Use the normal pull/start commands. Both changes are needed: the setting chooses
+the CUDA image, and the reservation gives its container GPU access. CPU/Intel
+hosts leave this block commented out. Adjust the reservation if a particular GPU
+must be selected.
 
 The locked PyTorch and ONNX Runtime GPU versions use CUDA 13. The NVIDIA extra
 installs only the GPU ONNX module; the pinned InsightFace metadata override lets
-the selected profile supply the runtime. It loads PyTorch before preloading
-CUDA/cuDNN libraries inside the disposable inference child. Pose, face inference,
-and OCR request CUDA. The override requests one GPU; edit its device
-reservation if a particular GPU must be selected.
+the selected profile supply the runtime. PyTorch loads before CUDA/cuDNN libraries
+are preloaded inside each disposable inference child. Pose, face inference, and
+OCR request CUDA.
 
 Check runtime availability without loading models:
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml -f compose.gpu.yaml exec worker \
+docker compose --env-file .env.docker exec worker \
   python -c 'import torch, onnxruntime as ort; ort.preload_dlls(directory=""); print("CUDA:", torch.cuda.is_available()); print(ort.get_available_providers())'
 ```
 
@@ -171,19 +197,19 @@ their owning worker, which is not implemented.
 ## Updates and status
 
 Finish active face review before replacing the worker. Back up first, check out
-the intended version, then rebuild and recreate the deployment:
+the intended version, then pull and recreate the deployment:
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml build
-docker compose --env-file .env.docker -f compose.yaml stop api worker
-docker compose --env-file .env.docker -f compose.yaml up -d --wait
-docker compose --env-file .env.docker -f compose.yaml ps -a
-docker compose --env-file .env.docker -f compose.yaml logs --tail=100 api worker migrate
+docker compose --env-file .env.docker pull
+docker compose --env-file .env.docker stop api worker
+docker compose --env-file .env.docker up -d --wait
+docker compose --env-file .env.docker ps -a
+docker compose --env-file .env.docker logs --tail=100 api worker migrate
 ```
 
-Use the same Intel or GPU override if applicable. Stop the API and worker before migrating
-an update so the old code cannot keep editing the database during schema changes.
-For a published update, replace `build` with `pull` and add `--no-build` to `up`.
+Keep the worker variant and any enabled NVIDIA reservation configured for this
+host. Stop the API and worker before migrating an update so the old code cannot
+keep editing the database during schema changes.
 After a code/image update, the migration service must run successfully before the
 API and worker are recreated. Keep the old source version/image until the update
 is verified. Schema changes may require restoring a backup rather than simply
@@ -198,8 +224,8 @@ separate volumes; keep the project name stable for normal operation.
 Back up while PostgreSQL is running:
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml run --rm ops backup /backups/before-update.snbak
-docker compose --env-file .env.docker -f compose.yaml run --rm ops verify-backup /backups/before-update.snbak
+docker compose --env-file .env.docker run --rm ops backup /backups/before-update.snbak
+docker compose --env-file .env.docker run --rm ops verify-backup /backups/before-update.snbak
 ```
 
 Use a new archive name each time. Copy it out of Docker's volume and store it away
@@ -207,7 +233,7 @@ from the deployment host:
 
 ```sh
 umask 077
-docker compose --env-file .env.docker -f compose.yaml run --rm -T --no-deps \
+docker compose --env-file .env.docker run --rm -T --no-deps \
   --entrypoint cat ops /backups/before-update.snbak > before-update.snbak
 ```
 
@@ -221,8 +247,8 @@ archive read-only. It assumes the source project uses the default `startnummer`
 name. Confirm its backup volume with `docker volume ls` before running this:
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml -p startnummer-recovery up -d --wait postgres
-docker compose --env-file .env.docker -f compose.yaml -p startnummer-recovery run --rm \
+docker compose --env-file .env.docker -p startnummer-recovery up -d --wait postgres
+docker compose --env-file .env.docker -p startnummer-recovery run --rm \
   -v startnummer_backups:/backups:ro ops restore /backups/before-update.snbak \
   --database-url 'postgresql+psycopg://startnummer:YOUR_POSTGRES_PASSWORD@postgres:5432/startnummer' \
   --blob-root /data/photos/originals

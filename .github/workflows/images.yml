@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [api, worker]
+        target: [api, worker-cpu]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,7 +107,7 @@ jobs:
             prefix: ''
           - variant: cpu
             image: startnummer-worker
-            target: worker
+            target: worker-cpu
             prefix: cpu-
           - variant: intel
             image: startnummer-worker
@@ -115,7 +115,7 @@ jobs:
             prefix: intel-
           - variant: nvidia
             image: startnummer-worker
-            target: worker-gpu
+            target: worker-nvidia
             prefix: nvidia-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

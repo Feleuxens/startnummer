@@ -86,7 +86,7 @@ Check the peer address on a test request in the API access log. Inspect its
 networks to identify the corresponding gateway:
 
 ```sh
-docker inspect "$(docker compose --env-file .env.docker -f compose.yaml ps -q api)" \
+docker inspect "$(docker compose --env-file .env.docker ps -q api)" \
   --format '{{json .NetworkSettings.Networks}}'
 ```
 
@@ -153,6 +153,7 @@ Set this in Startnummer's `.env.docker`:
 ```dotenv
 STARTNUMMER_COOKIE_SECURE=1
 STARTNUMMER_TRUSTED_PROXY_IPS=172.30.20.2
+STARTNUMMER_WORKER_VARIANT=intel
 ```
 
 Use the same Nginx server blocks, replacing the upstream block with the following.
@@ -174,8 +175,8 @@ Inside the Nginx container, `127.0.0.1:8000` would refer to Nginx's own containe
 Include the proxy override on every Startnummer start/update. For the Intel server:
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml -f compose.intel.yaml -f compose.proxy.yaml config --quiet
-docker compose --env-file .env.docker -f compose.yaml -f compose.intel.yaml -f compose.proxy.yaml up -d --no-build --wait
+docker compose --env-file .env.docker -f compose.yaml -f compose.proxy.yaml config --quiet
+docker compose --env-file .env.docker -f compose.yaml -f compose.proxy.yaml up -d --wait
 ```
 
 Use the normal [deployment/update procedure](docker.md#updates-and-status) for

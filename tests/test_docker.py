@@ -34,6 +34,7 @@ def test_compose_import_review_restart_and_restore(tmp_path):
         "STARTNUMMER_COOKIE_SECURE=0\n"
         "STARTNUMMER_PORT=0\n"
         "STARTNUMMER_IMAGE_TAG=docker-test\n"
+        "STARTNUMMER_WORKER_VARIANT=cpu\n"
     )
     configuration.chmod(0o600)
     override = tmp_path / "compose.json"
@@ -58,6 +59,8 @@ def test_compose_import_review_restart_and_restore(tmp_path):
         str(configuration),
         "-f",
         str(ROOT / "compose.yaml"),
+        "-f",
+        str(ROOT / "compose.build.yaml"),
         "-f",
         str(override),
         "--project-name",

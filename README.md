@@ -11,8 +11,8 @@ stores its own batches and review state in PostgreSQL, separately from Chevereto
 
 Docker is the production deployment for Linux. Native installation is also supported
 for Apple silicon acceleration. See [Docker deployment](docs/docker.md)
-for building and starting the app, NVIDIA GPU configuration, HTTPS, updates, and
-backup/restore. `compose.yaml` runs Startnummer; the separate `docker-compose.yml`
+for pulling or building images, startup, NVIDIA configuration, HTTPS, updates,
+and backup/restore. `compose.yaml` runs Startnummer; the separate `compose.dev.yaml`
 runs local test services. The native setup below also supports local installations.
 See [container releases](docs/releases.md) for GHCR images and release/development
 tags. The web image serves both the frontend and API.
@@ -24,8 +24,18 @@ Apple CoreML/Neural Engine installation and runtime selection.
 ## Local setup
 
 Requires Python 3.12, uv, Node.js compatible with Astro 7, and PostgreSQL.
-The local test services in `docker-compose.yml` expose PostgreSQL on port 5432,
+The local test services in `compose.dev.yaml` expose PostgreSQL on port 5432,
 MariaDB on 3306, and Chevereto at <http://localhost:8115>.
+
+Start the local test services explicitly:
+
+```sh
+docker compose -f compose.dev.yaml up -d
+```
+
+The renamed file keeps the previous development project and bind mounts. If you
+run development and production on the same Docker host, give the deployments
+different project names with `-p`.
 
 ```sh
 uv sync --extra api --extra cpu

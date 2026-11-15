@@ -1,0 +1,15 @@
+x-web-build: &web-build
+  context: .
+  target: api
+
+services:
+  api:
+    build: *web-build
+  migrate:
+    build: *web-build
+  ops:
+    build: *web-build
+  worker:
+    build:
+      context: .
+      target: worker-${STARTNUMMER_WORKER_VARIANT:-cpu}

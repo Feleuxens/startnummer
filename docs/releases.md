@@ -73,18 +73,21 @@ Create `.env.docker` and configure credentials as described in
 
 ```dotenv
 STARTNUMMER_IMAGE_TAG=0.1.0
+STARTNUMMER_WORKER_VARIANT=intel
 ```
 
 For the Intel server:
 
 ```sh
-docker compose --env-file .env.docker -f compose.yaml -f compose.intel.yaml pull
-docker compose --env-file .env.docker -f compose.yaml -f compose.intel.yaml up -d --no-build --wait
+docker compose --env-file .env.docker pull
+docker compose --env-file .env.docker up -d --wait
 ```
 
-Omit the override for CPU, or use `compose.gpu.yaml` for NVIDIA. `latest`, `edge`,
-`sha-<commit>`, and prerelease versions use the same setting; Compose adds the
-worker's device prefix. Do not include that prefix in `STARTNUMMER_IMAGE_TAG`.
+Choose `cpu`, `intel`, or `nvidia` with `STARTNUMMER_WORKER_VARIANT`. For NVIDIA,
+also enable the commented GPU reservation in `compose.yaml`; see the
+[GPU setup](docker.md#nvidia-gpu). `latest`, `edge`, `sha-<commit>`, and prerelease
+versions use the same image-tag setting. Compose adds the worker's device prefix,
+so leave it out of `STARTNUMMER_IMAGE_TAG`.
 
 Back up and finish active face review before updating an existing deployment.
 Follow the stop/migration/restart sequence in the Docker guide.

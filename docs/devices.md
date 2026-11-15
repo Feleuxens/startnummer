@@ -117,15 +117,16 @@ wall and monotonic deadlines, so laptop suspend cannot extend the original TTL.
 
 `Dockerfile` selects the same extras as native installations:
 
-- `worker`: `cpu`
+- `worker-cpu`: `cpu`
 - `worker-intel`: `intel`
-- `worker-gpu`: `nvidia`
+- `worker-nvidia`: `nvidia`
 
-For Intel, use `-f compose.yaml -f compose.intel.yaml`. For NVIDIA, use
-`-f compose.yaml -f compose.gpu.yaml`. The base Compose stack uses CPU inference.
+The production file pulls the worker image selected by
+`STARTNUMMER_WORKER_VARIANT=cpu`, `intel`, or `nvidia`. NVIDIA also requires enabling
+the commented GPU reservation in `compose.yaml`. For local image builds, add
+`-f compose.yaml -f compose.build.yaml`; it selects the matching Dockerfile target.
 See [Docker deployment](docker.md) for configuration, persistent data, backups,
-and updates. Native Apple installation is supported separately from these Linux
-containers.
+and updates. Apple inference runs natively on macOS.
 
 
 ## Verification status
