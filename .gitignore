@@ -151,6 +151,8 @@ activemq-data/
 
 # Environments
 .env
+.env.docker
+backups/
 .envrc
 .venv
 env/

@@ -1,0 +1,5 @@
+services:
+  worker:
+    image: ${STARTNUMMER_IMAGE_NAMESPACE:-ghcr.io/feleuxens}/startnummer-worker:intel-${STARTNUMMER_IMAGE_TAG:-local}
+    build:
+      target: worker-intel

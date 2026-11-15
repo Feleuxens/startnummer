@@ -1,0 +1,112 @@
+name: startnummer
+
+x-runtime: &runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  ulimits:
+    core: {soft: 0, hard: 0}
+  tmpfs:
+    - /tmp:mode=1777,size=4G
+  stop_grace_period: 30s
+
+x-api: &api
+  <<: *runtime
+  image: ${STARTNUMMER_IMAGE_NAMESPACE:-ghcr.io/feleuxens}/startnummer-web:${STARTNUMMER_IMAGE_TAG:-local}
+  build:
+    context: .
+    target: api
+  env_file:
+    - ${STARTNUMMER_ENV_FILE:-.env.docker}
+  environment: &api-environment
+    STARTNUMMER_DATABASE_URL: postgresql+psycopg://startnummer:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/startnummer
+    STARTNUMMER_BLOB_ROOT: /data/photos/originals
+    STARTNUMMER_WORKER_URL: http://worker:8766
+    STARTNUMMER_PASSWORD: ${STARTNUMMER_PASSWORD:?Set STARTNUMMER_PASSWORD}
+    STARTNUMMER_SESSION_SECRET: ${STARTNUMMER_SESSION_SECRET:?Set STARTNUMMER_SESSION_SECRET}
+    STARTNUMMER_WORKER_SECRET: ${STARTNUMMER_WORKER_SECRET:?Set STARTNUMMER_WORKER_SECRET}
+    STARTNUMMER_COOKIE_SECURE: ${STARTNUMMER_COOKIE_SECURE:-1}
+    FORWARDED_ALLOW_IPS: ${STARTNUMMER_TRUSTED_PROXY_IPS:-127.0.0.1}
+  volumes:
+    - photos:/data/photos
+    - backups:/backups
+  networks: [database, outbound]
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: startnummer
+      POSTGRES_USER: startnummer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    <<: *api
+    restart: "no"
+    command: [python, -m, startnummer.app.manage, migrate]
+    healthcheck: {disable: true}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    <<: *api
+    ports:
+      - "${STARTNUMMER_BIND_HOST:-127.0.0.1}:${STARTNUMMER_PORT:-8000}:8000"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      worker: {condition: service_healthy}
+
+  worker:
+    <<: *runtime
+    image: ${STARTNUMMER_IMAGE_NAMESPACE:-ghcr.io/feleuxens}/startnummer-worker:cpu-${STARTNUMMER_IMAGE_TAG:-local}
+    build:
+      context: .
+      target: worker
+    # Explicit allowlist: never give the worker login or gallery credentials.
+    environment:
+      STARTNUMMER_DATABASE_URL: postgresql+psycopg://startnummer:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/startnummer
+      STARTNUMMER_BLOB_ROOT: /data/photos/originals
+      STARTNUMMER_WORKER_SECRET: ${STARTNUMMER_WORKER_SECRET:?Set STARTNUMMER_WORKER_SECRET}
+      STARTNUMMER_WORKER_HOST: 0.0.0.0
+      STARTNUMMER_WORKER_PORT: "8766"
+      STARTNUMMER_FACE_SESSION_TTL: ${STARTNUMMER_FACE_SESSION_TTL:-3600}
+    command: [python, -m, startnummer.app.worker, --cache-mb, "${STARTNUMMER_CACHE_MB:-512}"]
+    volumes:
+      - photos:/data/photos:ro
+      - models:/data/models
+    networks: [database, outbound]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  ops:
+    <<: *api
+    restart: "no"
+    profiles: [operations]
+    entrypoint: [python, -m, startnummer.app.manage]
+    command: [--help]
+    healthcheck: {disable: true}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+volumes:
+  postgres:
+  photos:
+  models:
+  backups:
+
+networks:
+  database:
+    internal: true
+  outbound:

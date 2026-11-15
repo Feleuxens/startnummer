@@ -7,6 +7,17 @@ captions, and apply approved descriptions to existing Chevereto images.
 The gallery adapter supports **Chevereto 4.5.9** with `chv_` tables. Startnummer
 stores its own batches and review state in PostgreSQL, separately from Chevereto.
 
+## Deployment
+
+Docker is the production deployment for Linux. Native installation is also supported
+for Apple silicon acceleration. See [Docker deployment](docs/docker.md)
+for building and starting the app, NVIDIA GPU configuration, HTTPS, updates, and
+backup/restore. `compose.yaml` runs Startnummer; the separate `docker-compose.yml`
+runs local test services. The native setup below also supports local installations.
+
+See [device profiles](docs/devices.md) for Intel OpenVINO, NVIDIA CUDA, and native
+Apple CoreML/Neural Engine installation and runtime selection.
+
 ## Local setup
 
 Requires Python 3.12, uv, Node.js compatible with Astro 7, and PostgreSQL.
@@ -14,7 +25,9 @@ The local test services in `docker-compose.yml` expose PostgreSQL on port 5432,
 MariaDB on 3306, and Chevereto at <http://localhost:8115>.
 
 ```sh
-uv sync --extra api --extra worker --extra ocr --extra face
+uv sync --extra api --extra cpu
+# Use --extra intel, --extra nvidia, or --extra apple instead of --extra cpu
+# for the corresponding device; see docs/devices.md.
 
 cp .env.example .env
 ```
@@ -105,8 +118,8 @@ stop signal, the command checks the launcher's PID and Linux process start time:
 uv run --no-sync startnummer stop
 ```
 
-The worker finishes its current job before exiting. Stopping it ends temporary
-face sessions. To switch from manually started services, finish active face review,
+Stopping the worker interrupts analysis and clears temporary face sessions.
+To switch from manually started services, finish active face review,
 stop those processes, then run migrations and start the launcher. Tests use
 separate processes and ports.
 
