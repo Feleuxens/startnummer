@@ -16,6 +16,7 @@ backup/restore. `compose.yaml` runs Startnummer; the separate `docker-compose.ym
 runs local test services. The native setup below also supports local installations.
 See [container releases](docs/releases.md) for GHCR images and release/development
 tags. The web image serves both the frontend and API.
+For an existing reverse proxy, see the [Nginx configuration guide](docs/reverse-proxy.md).
 
 See [device profiles](docs/devices.md) for Intel OpenVINO, NVIDIA CUDA, and native
 Apple CoreML/Neural Engine installation and runtime selection.

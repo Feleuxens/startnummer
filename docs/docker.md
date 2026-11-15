@@ -71,26 +71,14 @@ Run a small test album before processing important work.
 
 ## HTTPS proxy
 
-The host reverse proxy must preserve the incoming `Host`. For example, inside an
-existing Nginx HTTPS server block:
+The [Nginx guide](reverse-proxy.md) includes HTTPS server blocks for a proxy on the
+host or in another Docker project. It covers trusted proxy addresses, secure
+cookies, upload limits, buffering, Docker DNS, and troubleshooting.
 
-```nginx
-client_max_body_size 2g;
-
-location / {
-    proxy_pass http://127.0.0.1:8000;
-    proxy_set_header Host $http_host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_read_timeout 300s;
-}
-```
-
-TLS certificates and DNS stay with your proxy. Set `STARTNUMMER_TRUSTED_PROXY_IPS`
-to the proxy address/subnet as seen inside the API container if you want forwarded
-client addresses. The default trusts loopback only. For a containerized proxy,
-attach it to the API's network and use `api:8000`; keep the worker/database private.
-Match proxy body limits to the import limits configured in Administration.
+Keep the API on loopback for a host proxy, or remove its published port when using
+a shared proxy network. Set `STARTNUMMER_COOKIE_SECURE=1` for the public HTTPS URL
+and preserve the incoming `Host`. TLS certificates and DNS stay with your proxy;
+the worker and database stay private.
 
 ## Gallery connection
 
