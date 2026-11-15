@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import time
+from functools import partial
 from uuid import uuid4
 
 import pytest
@@ -46,14 +47,16 @@ def test_portable_process_identity_uses_birth_time(monkeypatch):
         assert processes.process_identity(os.getpid()) == expected
 
 
-def wait_for(predicate, timeout=12):
+def wait_for(process, log_path, predicate, timeout=12):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = predicate()
         if result:
             return result
+        if process.poll() is not None:
+            raise AssertionError(f"Launcher fixture exited with status {process.returncode}:\n{log_path.read_text()}")
         time.sleep(0.05)
-    raise AssertionError("Timed out waiting for launcher fixture")
+    raise AssertionError(f"Timed out waiting for launcher fixture:\n{log_path.read_text()}")
 
 
 def test_supervisor_starts_probes_restarts_only_failed_child_and_stops_own_services(tmp_path):
@@ -83,7 +86,8 @@ def test_supervisor_starts_probes_restarts_only_failed_child_and_stops_own_servi
         owner_id=uuid4(),
         worker_url=env["STARTNUMMER_WORKER_URL"],
     )
-    with (tmp_path / "launcher.log").open("w") as log:
+    log_path = tmp_path / "launcher.log"
+    with log_path.open("w") as log:
         child = subprocess.Popen(
             [
                 sys.executable,
@@ -104,18 +108,19 @@ def test_supervisor_starts_probes_restarts_only_failed_child_and_stops_own_servi
             stderr=log,
             start_new_session=True,
         )
+        wait = partial(wait_for, child, log_path)
         try:
-            wait_for(lambda: read_state(directory))
-            wait_for(lambda: status(directory, settings)["api"] == "ready")
-            wait_for(lambda: status(directory, settings)["worker"] == "idle")
+            wait(lambda: read_state(directory))
+            wait(lambda: status(directory, settings)["api"] == "ready")
+            wait(lambda: status(directory, settings)["worker"] == "idle")
             before = read_state(directory)
             os.kill(before["children"]["worker"]["pid"], signal.SIGKILL)
-            restarted = wait_for(
+            restarted = wait(
                 lambda: (state := read_state(directory)) and state["children"]["worker"]["restarts"] == 1 and state
             )
             assert restarted["children"]["api"]["pid"] == before["children"]["api"]["pid"]
             assert restarted["children"]["worker"]["pid"] != before["children"]["worker"]["pid"]
-            wait_for(lambda: status(directory, settings)["worker"] == "idle")
+            wait(lambda: status(directory, settings)["worker"] == "idle")
             stop(directory)
             child.wait(timeout=10)
             assert child.returncode == 0
@@ -139,6 +144,30 @@ def test_occupied_port_is_reported_without_starting_or_stopping_external_service
             supervise(args, None)
         assert existing.getsockname()[1] == port
         assert not (tmp_path / "run/supervisor.json").exists()
+
+
+def test_missing_frontend_is_reported_before_starting_services(tmp_path, monkeypatch):
+    from startnummer.app import manage
+
+    monkeypatch.setattr(manage, "ROOT", tmp_path / "application")
+    monkeypatch.setattr(manage, "database_healthy", lambda _: True)
+    settings = Settings(
+        database_url="sqlite://",
+        blob_root=tmp_path / "photos",
+        password="launcher-test-only",
+        session_secret="s" * 32,
+        worker_secret="w" * 32,
+        owner_id=uuid4(),
+    )
+    port, worker_port = free_port(), free_port()
+    while worker_port == port:
+        worker_port = free_port()
+    args = parser().parse_args(
+        ["--run-dir", str(tmp_path / "run"), "start", "--port", str(port), "--worker-port", str(worker_port)]
+    )
+    with pytest.raises(WorkflowError, match="Frontend build missing"):
+        supervise(args, settings)
+    assert not (tmp_path / "run/supervisor.json").exists()
 
 
 def test_stale_state_cannot_signal_an_unrelated_process(tmp_path):

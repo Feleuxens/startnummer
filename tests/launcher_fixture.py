@@ -6,6 +6,7 @@ import sys
 import threading
 
 from startnummer.adapters.face.sessions import FaceSessions
+from startnummer.app import manage
 from startnummer.app.manage import child_commands, parser, supervise
 from startnummer.app.settings import Settings
 from startnummer.app.worker import session_server
@@ -30,6 +31,12 @@ def main():
         thread.join(timeout=5)
     else:
         args = parser().parse_args()
+        # Keep launcher prerequisites independent of a local Astro build.
+        os.environ["PYTHONPATH"] = str(manage.ROOT)
+        manage.ROOT = args.run_dir.resolve() / "application"
+        frontend = manage.ROOT / "startnummer-web" / "dist"
+        frontend.mkdir(parents=True)
+        (frontend / "index.html").write_text("<!doctype html><title>Launcher fixture</title>")
         commands = child_commands(args.port, args.cache_mb, args.no_faces)
         commands["worker"] = [sys.executable, "-m", "tests.launcher_fixture", "worker"]
         supervise(args, Settings.from_env(), commands=commands)
