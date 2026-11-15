@@ -38,7 +38,17 @@ Photos are fetched through authenticated endpoints; test-gallery images are not
 frontend assets. Browser tests use synthetic images.
 
 Administration uses the same surfaces and typography, with service-status
-rows and labeled numeric settings. Saving is explicit. Polling status preserves
+rows, configured integrations, and labeled numeric settings. Its navigation link
+sits above Sign out at the bottom of the sidebar. Saving is explicit. Polling status preserves
 unsaved inputs; concurrent settings edits require reloading the saved values.
-The configured account is the administrator. Credentials and paths are not editable
-in the browser.
+The configured account is the administrator. Chevereto connections managed by the
+environment show read-only fields and a connection test. Otherwise, an explicit
+form saves the encrypted connection. Never prefill an existing password. Status
+polling preserves connection drafts; stale saves require a reload. Dirty connection
+and runtime-settings forms both guard navigation. Startnummer's own database,
+application secrets, and storage paths remain server configuration.
+
+Each integration uses a collapsed disclosure under Configured integrations. Its
+header shows the name, configuration source, and state. Expanding reveals the
+settings and actions. Collapsing keeps drafts and navigation guards intact;
+unsaved changes and connection errors remain visible in the header.

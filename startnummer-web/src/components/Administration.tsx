@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SubmitEvent } from 'react';
 import type { components } from '../api/schema';
 import { api, message, unwrap } from '../api/client';
+import CheveretoIntegration from '../features/integrations/CheveretoIntegration';
 
 type Schema = components['schemas'];
 const MiB = 1024 * 1024;
@@ -12,7 +13,13 @@ const editable = (settings: Schema['RuntimeSettings']) => ({
   minutes: String(settings.session_ttl / 60),
 });
 
-export default function Administration({ onDirty }: { onDirty: (dirty: boolean) => void }) {
+export default function Administration({
+  onIntegrationChange,
+  onDirty,
+}: {
+  onIntegrationChange: () => void;
+  onDirty: (dirty: boolean) => void;
+}) {
   const [data, setData] = useState<Schema['Administration'] | null>(null);
   const [form, setForm] = useState<ReturnType<typeof editable> | null>(null);
   const [error, setError] = useState('');
@@ -20,6 +27,7 @@ export default function Administration({ onDirty }: { onDirty: (dirty: boolean) 
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const dirty = useRef(false);
+  const integrationDirty = useRef(false);
   const alive = useRef(true);
   async function refresh() {
     try {
@@ -60,7 +68,7 @@ export default function Administration({ onDirty }: { onDirty: (dirty: boolean) 
       );
       if (!alive.current) return;
       dirty.current = false;
-      onDirty(false);
+      onDirty(integrationDirty.current);
       setForm(editable(saved));
       setNotice(
         'Settings saved. Import limits apply to new imports; the lifetime applies to new face sessions.',
@@ -125,11 +133,18 @@ export default function Administration({ onDirty }: { onDirty: (dirty: boolean) 
               {data.jobs.failed ?? 0} failed jobs
             </p>
             {!data.worker.reachable && (
-              <p className="muted">
-                The worker is unavailable or is still loading models. Saved captions remain
-                editable.
-              </p>
+              <p className="muted">The worker is unavailable. Saved captions remain editable.</p>
             )}
+          </section>
+          <section aria-labelledby="integrations-title">
+            <h2 id="integrations-title">Configured integrations</h2>
+            <CheveretoIntegration
+              onDirty={(value) => {
+                integrationDirty.current = value;
+                onDirty(dirty.current || value);
+              }}
+              onChanged={onIntegrationChange}
+            />
           </section>
           <section aria-labelledby="settings-title">
             <h2 id="settings-title">Import and face review</h2>
@@ -203,7 +218,7 @@ export default function Administration({ onDirty }: { onDirty: (dirty: boolean) 
                     )
                       return;
                     dirty.current = false;
-                    onDirty(false);
+                    onDirty(integrationDirty.current);
                     setError('');
                     void refresh();
                   }}
@@ -221,7 +236,7 @@ export default function Administration({ onDirty }: { onDirty: (dirty: boolean) 
               and these settings. Temporary face data and gallery credentials are excluded.
             </p>
             <p className="muted">
-              Database connections, credentials, and storage paths remain in server configuration.
+              Startnummer's database connection and storage paths remain in server configuration.
               Restore requires an empty destination and does not change Chevereto.
             </p>
           </section>

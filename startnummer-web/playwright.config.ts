@@ -3,6 +3,14 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   workers: 1,
+  projects: [
+    { name: 'workflow', testMatch: 'workflow.spec.ts' },
+    {
+      name: 'integrations',
+      testMatch: 'integrations.spec.ts',
+      use: { baseURL: 'http://127.0.0.1:8100' },
+    },
+  ],
   use: {
     baseURL: 'http://127.0.0.1:8099',
     browserName: 'chromium',
@@ -13,10 +21,19 @@ export default defineConfig({
     viewport: { width: 1440, height: 1000 },
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command:
-      '../.venv/bin/uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8099',
-    url: 'http://127.0.0.1:8099',
-    reuseExistingServer: false,
-  },
+  webServer: [
+    {
+      command:
+        '../.venv/bin/uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8099',
+      url: 'http://127.0.0.1:8099',
+      reuseExistingServer: false,
+    },
+    {
+      command:
+        '../.venv/bin/uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8100',
+      url: 'http://127.0.0.1:8100',
+      reuseExistingServer: false,
+      env: { STARTNUMMER_BROWSER_INTEGRATION_MODE: 'administration' },
+    },
+  ],
 });

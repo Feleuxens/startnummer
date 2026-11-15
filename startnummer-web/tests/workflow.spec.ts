@@ -13,8 +13,24 @@ async function login(page: Page) {
 
 test('administrator sees service status and saves revision-checked settings', async ({ page }) => {
   await login(page);
+  await expect(
+    page.locator('.sidebar-footer').getByRole('button', { name: 'Administration', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('.topbar')).not.toContainText('Chevereto configured');
   await page.getByRole('button', { name: 'Administration', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
+  const integrations = page.getByRole('region', { name: 'Configured integrations', exact: true });
+  const disclosure = integrations.locator('summary');
+  await expect(disclosure).toContainText('Configured · Managed by environment');
+  await expect(integrations.getByLabel('Database host', { exact: true })).toBeHidden();
+  await disclosure.click();
+  await expect(integrations.getByRole('link')).toHaveAttribute('href', 'http://gallery.test');
+  await expect(integrations.getByLabel('Database host', { exact: true })).toBeDisabled();
+  await expect(
+    integrations.getByRole('button', { name: 'Save connection', exact: true }),
+  ).toHaveCount(0);
+  await integrations.getByRole('button', { name: 'Test connection', exact: true }).click();
+  await expect(integrations.getByRole('status')).toContainText('No descriptions were written');
   const file = page.getByRole('spinbutton', { name: 'Maximum photo size (MiB)', exact: true });
   const batch = page.getByRole('spinbutton', { name: 'Maximum batch size (MiB)', exact: true });
   const lifetime = page.getByRole('spinbutton', {
@@ -23,8 +39,9 @@ test('administrator sees service status and saves revision-checked settings', as
   });
   await expect(file).toHaveValue('50');
   await expect(lifetime).toHaveValue('60');
-  await expect(page.locator('.service-status')).toContainText('Writable');
-  await expect(page.locator('.service-status')).toContainText('idle');
+  const services = page.getByRole('region', { name: 'Services', exact: true });
+  await expect(services).toContainText('Writable');
+  await expect(services).toContainText('idle');
   const original = (await (await page.request.get('/api/admin')).json()).settings;
   await file.fill('2');
   await batch.fill('8');
@@ -49,16 +66,18 @@ test('administrator sees service status and saves revision-checked settings', as
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Reload settings', exact: true }).click();
   await expect(lifetime).toHaveValue('15');
-  await page
-    .locator('.administration')
-    .screenshot({ path: test.info().outputPath('administration-desktop.png') });
+  await page.screenshot({
+    path: test.info().outputPath('administration-desktop.png'),
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page
-    .locator('.administration')
-    .screenshot({ path: test.info().outputPath('administration-mobile.png') });
+  await page.screenshot({
+    path: test.info().outputPath('administration-mobile.png'),
+    fullPage: true,
+  });
   const current = (await (await page.request.get('/api/admin')).json()).settings;
   expect(
     (
@@ -1110,4 +1129,119 @@ test('an incompatible worker session explains disabled propagation and keeps ind
   await page.reload();
   await page.getByRole('button', { name: 'Name detected face 1' }).click();
   await expect(page.getByRole('button', { name: 'Find matching faces…' })).toBeEnabled();
+});
+
+async function openAnalyzedGallery(page: Page, name: string) {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
+  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+    name: 'roster.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from(html),
+  });
+  await page.getByLabel('Album name', { exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+  await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Name detected face 1', exact: true })).toBeEnabled(
+    { timeout: 15000 },
+  );
+  return new URL(page.url()).hash.split('/')[1];
+}
+
+test('screen navigation guards drafts and expires hidden face data before reopening', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await openAnalyzedGallery(page, 'Feature navigation');
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await page.getByLabel('Or enter a name').fill('Saved Visitor');
+  await page.getByRole('button', { name: 'Save caption and corrections' }).click();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue('Saved Visitor');
+  await page.getByLabel('Reviewed caption').fill('Unsaved draft');
+
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: 'Administration', exact: true }).click();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue('Unsaved draft');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Administration', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
+  await page.clock.fastForward(3_700_000);
+  await expect(page.locator('.face-box')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Saved albums/ }).click();
+  await page.getByRole('button', { name: /Feature navigation.*2 photos/ }).click();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue('Saved Visitor');
+  await expect(page.getByRole('combobox', { name: 'Show', exact: true })).toHaveValue('all');
+  await expect(page.getByLabel('Photo 1 of 2 in album')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save caption and corrections' })).toBeDisabled();
+  await expect(page.locator('.face-box')).toHaveCount(0);
+  expect(
+    await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length })),
+  ).toEqual({ local: 0, session: 0 });
+});
+
+test('an older analysis poll cannot restore a cancelled job or its face selectors', async ({
+  page,
+}) => {
+  const batchId = await openAnalyzedGallery(page, 'Polling lifecycle');
+  const stale: components['schemas']['BatchView'] = await (
+    await page.request.get(`/api/batches/${batchId}`)
+  ).json();
+  const job = stale.jobs[0];
+  if (!job) throw new Error('The analyzed fixture must contain a job');
+  job.state = 'running';
+  let cancelled = false;
+  let reads = 0;
+  let releasePoll!: () => void;
+  let pollStarted!: () => void;
+  const held = new Promise<void>((resolve) => {
+    releasePoll = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    pollStarted = resolve;
+  });
+  await page.route(`**/api/batches/${batchId}/analysis/cancel`, async (route) => {
+    cancelled = true;
+    await route.continue();
+  });
+  await page.route(`**/api/batches/${batchId}`, async (route) => {
+    if (cancelled) {
+      await route.continue();
+      return;
+    }
+    reads += 1;
+    if (reads === 3) {
+      pollStarted();
+      await held;
+      await route.fulfill({
+        json: {
+          ...stale,
+          batch: { ...stale.batch, album: { ...stale.batch.album, name: 'Obsolete poll' } },
+        },
+      });
+    } else await route.fulfill({ json: stale });
+  });
+  await page.reload();
+  await started;
+  await page.getByRole('button', { name: 'Cancel analysis', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Analysis cancelled. Saved review work was kept.' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancel analysis', exact: true })).toHaveCount(0);
+  await expect(page.locator('.face-box')).toHaveCount(0);
+  await page.getByLabel('Reviewed caption').fill('Draft after cancellation');
+  const delivered = page.waitForResponse(
+    async (response) =>
+      response.url().endsWith(`/api/batches/${batchId}`) &&
+      (await response.json()).batch.album.name === 'Obsolete poll',
+  );
+  releasePoll();
+  await (await delivered).finished();
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(page.getByRole('heading', { name: 'Polling lifecycle', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancel analysis', exact: true })).toHaveCount(0);
+  await expect(page.locator('.face-box')).toHaveCount(0);
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue('Draft after cancellation');
 });

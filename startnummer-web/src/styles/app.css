@@ -217,16 +217,11 @@ nav button span {
   font-variant-numeric: tabular-nums;
   color: var(--faint);
 }
-.sidebar-note {
+.sidebar-footer {
   margin-top: auto;
-  padding: 24px 8px;
-  color: var(--faint);
-  font-size: 12px;
-}
-.signout {
-  align-self: flex-start;
-  border: 0;
-  color: var(--muted);
+  padding-top: 24px;
+  display: grid;
+  gap: 5px;
 }
 .canvas {
   min-width: 0;
@@ -238,11 +233,6 @@ nav button span {
   display: flex;
   justify-content: space-between;
   gap: var(--gap);
-}
-.topbar span:last-child {
-  color: var(--faint);
-  font-size: 12px;
-  text-align: right;
 }
 .content {
   padding: var(--pad);
@@ -429,6 +419,46 @@ progress {
 .administration fieldset button {
   justify-self: start;
 }
+.integration-panel {
+  margin-top: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.integration-panel > summary {
+  min-height: 44px;
+  padding: 12px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.integration-panel > summary:hover {
+  background: var(--surface);
+}
+.integration-panel > summary::marker {
+  color: var(--muted);
+}
+.integration-summary {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: calc(100% - 20px);
+  vertical-align: top;
+}
+.integration-name {
+  font-weight: 600;
+}
+.integration-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+.integration-settings {
+  padding: 8px 8px 18px;
+}
+.integration-settings > p {
+  max-width: 70ch;
+  margin: 12px 0;
+}
+.integration-actions {
+  margin-top: 18px;
+}
 .service-status {
   margin: 16px 0;
 }
@@ -443,6 +473,7 @@ progress {
 .service-status dd {
   margin: 0;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .review-toolbar label {
   display: flex;
@@ -896,17 +927,21 @@ button.face-box.chosen {
     border-bottom: 1px solid var(--rule);
     flex-wrap: wrap;
   }
-  .sidebar .scope,
-  .sidebar-note {
+  .sidebar .scope {
     display: none;
+  }
+  .sidebar-footer {
+    margin-top: 0;
+    margin-left: auto;
+    padding-top: 0;
+  }
+  .sidebar-footer nav {
+    display: grid;
+    margin-left: 0;
   }
   nav {
     display: flex;
     margin-left: auto;
-  }
-  .signout {
-    align-self: center;
-    font-size: 12px;
   }
   .topbar {
     min-height: 48px;
@@ -947,15 +982,6 @@ button.face-box.chosen {
     padding: 7px;
   }
   nav button span {
-    display: none;
-  }
-  .signout {
-    width: 100%;
-    text-align: right;
-    min-height: 28px;
-    padding: 0;
-  }
-  .topbar > span:last-child {
     display: none;
   }
   .title-row .actions {
