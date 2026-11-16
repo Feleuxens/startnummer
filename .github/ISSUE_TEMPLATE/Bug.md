@@ -1,40 +1,34 @@
 ---
 name: Bug
-about: Something behaves differently than intended
+about: Report something that is not working
 title: ""
 labels: ["bug"]
 ---
 
-## Description
+## What happened?
 
-<!-- What goes wrong, where, and since when (if known). -->
+<!-- Describe the problem and what you expected to happen. -->
 
-## Reproduction
-
-> Use a synthetic sample or redacted crop when possible. If the issue requires
-> a real competition photo that you cannot share, keep it local and describe it.
-> Include the batch and photo IDs. A content hash identifies shared image bytes,
-> not an individual gallery entry.
-
-<!-- Minimal steps to reproduce. -->
+## How can we reproduce it?
 
 1.
 2.
+3.
 
-## Expected vs. actual
-
-**Expected:**
-**Actual:**
+<!--
+Use synthetic photos or redacted samples when possible. Keep private competition
+photos local if you cannot share them. Include the batch/photo IDs when relevant;
+a content hash identifies shared bytes, not an individual photo entry.
+Do not attach credentials, face embeddings, geometry, or match-group data.
+-->
 
 ## Environment
 
-- commit / branch / version
-- device: `cuda` / `mps` / `cpu`
-- pipeline step
+- Version or commit:
+- Docker or native installation:
+- Operating system:
+- Backend: `cpu`, `openvino`, `cuda`, or `apple`
 
-## Technical notes
+## Additional details
 
-<!--
-Optional: suspected cause, relevant module, failing assertion, or unexpected
-confidence value.
--->
+<!-- Optional: relevant logs, the affected step, or a suspected cause. -->

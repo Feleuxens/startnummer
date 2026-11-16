@@ -1,22 +1,29 @@
-# Nginx reverse proxy
+# Serve Startnummer through Nginx
 
-Serve Startnummer at the root of a dedicated hostname, such as
-`startnummer.example.org`. The web image serves the UI and `/api/` together;
-route both to port 8000. A URL prefix such as `/startnummer/` is not supported by
-the current frontend. Analysis progress uses polling, so no WebSocket setup is needed.
+Use a dedicated hostname such as `startnummer.example.org` and serve the app at
+its root. The same upstream serves the UI and `/api/`. A URL prefix such as
+`/startnummer/` is unsupported. Analysis uses polling and needs no WebSocket setup.
 
-The examples assume Nginx terminates HTTPS. Keep your existing certificate
-management and TLS configuration if the server already has them. Replace the
-hostname, certificate paths, and upstream address for your installation.
+The examples assume you already manage HTTPS certificates with Nginx. Replace the
+hostname, certificate paths, and upstream addresses for your installation.
 
 ## Nginx on the host
 
-The default Compose configuration publishes the API on `127.0.0.1:8000`. Keep
-`STARTNUMMER_BIND_HOST=127.0.0.1` and `STARTNUMMER_COOKIE_SECURE=1` in `.env.docker`.
-The worker and PostgreSQL stay private.
+### 1. Keep the API on loopback
 
-Put this configuration in an Nginx file included from its `http` context, commonly
-`/etc/nginx/conf.d/startnummer.conf` or a site under `sites-enabled`:
+Set these values in `.env.docker`:
+
+```dotenv
+STARTNUMMER_BIND_HOST=127.0.0.1
+STARTNUMMER_COOKIE_SECURE=1
+```
+
+The proxy will reach port 8000 on the host. Keep the worker and PostgreSQL private.
+
+### 2. Add the server configuration
+
+Put the following in a file included by Nginx's `http` context, such as
+`/etc/nginx/conf.d/startnummer.conf`:
 
 ```nginx
 upstream startnummer_backend {
@@ -62,57 +69,52 @@ server {
 }
 ```
 
-`Host $http_host` preserves the public hostname and any explicit port. Startnummer
-compares it with the browser's `Origin` for writes. The forwarded client address
-is replaced at this single edge proxy rather than accepting a client-supplied chain.
-For an additional trusted proxy or CDN in front of Nginx, configure Nginx's real-IP
-handling for that topology before using `$remote_addr` as the client address.
+`Host $http_host` preserves the public hostname and port for Startnummer's origin
+checks. The proxy replaces forwarded client headers with the address it sees.
+If a CDN or another proxy sits in front of Nginx, configure trusted real-IP
+handling for that topology first.
 
-Request/response buffering is disabled to stream uploads and photo responses
-without Nginx spooling them to proxy temporary files. The location also disables
-an inherited proxy cache, including for authenticated review responses.
-These settings concern Nginx; the API still stores imported originals and handles
-its own temporary upload files. See the
-[Nginx proxy directives](https://nginx.org/en/docs/http/ngx_http_proxy_module.html).
+Request/response buffering and inherited proxy caching are disabled for this
+location. This avoids Nginx spooling uploads and photo responses to its temporary
+files. The API still handles its own temporary uploads and stored originals.
+See the [Nginx proxy directives](https://nginx.org/en/docs/http/ngx_http_proxy_module.html).
 
-### Trusted proxy address
+### 3. Trust the proxy's actual address
 
-With a native API on the same host, `FORWARDED_ALLOW_IPS=127.0.0.1` covers this
-upstream connection. Compose instead maps `STARTNUMMER_TRUSTED_PROXY_IPS` to that
-Uvicorn setting. Docker may present host-originated connections to the API as a
-bridge gateway address, rather than loopback.
+For a native API on the same host, `FORWARDED_ALLOW_IPS=127.0.0.1` covers the
+connection. Compose maps `STARTNUMMER_TRUSTED_PROXY_IPS` to that Uvicorn setting.
+Docker may present host connections as a bridge gateway address instead.
 
-Check the peer address on a test request in the API access log. Inspect its
-networks to identify the corresponding gateway:
+Check the API access log for the peer address and inspect the container networks:
 
 ```sh
 docker inspect "$(docker compose --env-file .env.docker ps -q api)" \
   --format '{{json .NetworkSettings.Networks}}'
 ```
 
-For example, if the observed peer is `172.28.0.1`, set:
+If the observed peer is `172.28.0.1`, for example, set:
 
 ```dotenv
 STARTNUMMER_TRUSTED_PROXY_IPS=127.0.0.1,172.28.0.1
 ```
 
-Use the actual address, not this example. Recreate the API after changing its
-environment. Avoid `*`; trust the proxy peer or a dedicated proxy subnet.
-Uvicorn documents this as
-[`--forwarded-allow-ips`](https://uvicorn.dev/settings/#http).
+Use your actual address and recreate the API after editing its environment.
+Trust only that peer or a dedicated proxy subnet; `*` trusts every sender.
+See Uvicorn's [`--forwarded-allow-ips`](https://uvicorn.dev/settings/#http).
 
-## Nginx in another Docker Compose project
+## Nginx in another Docker project
 
-Connect only Nginx and the API to an external proxy network. The following example
-uses a fixed Nginx address so the API can trust that peer precisely. Choose an
-unused subnet and adjust both configurations if this range overlaps your networks:
+Connect the API and Nginx to an external proxy network. The example uses a fixed
+Nginx address so the API can trust it precisely. Choose an unused subnet.
+
+### 1. Create and attach the network
 
 ```sh
 docker network create --subnet 172.30.20.0/24 startnummer-proxy
 ```
 
-Add this to your existing Nginx Compose configuration, retaining its other
-networks, volumes, published ports, and certificate configuration:
+Add this network to your existing Nginx Compose configuration. Keep its current
+networks, ports, certificate mounts, and other settings:
 
 ```yaml
 services:
@@ -145,19 +147,22 @@ networks:
     name: startnummer-proxy
 ```
 
-The reset removes the host port; an empty list alone does not remove inherited
-ports. Use a recent Compose v2 release; Compose 2.24.4 or newer supports this
-override. See [Compose merge rules](https://docs.docker.com/reference/compose-file/merge/).
-Set this in Startnummer's `.env.docker`:
+Use Compose 2.24.4 or newer for this override. `!reset []` removes the published
+host port; an empty list alone keeps inherited ports. See
+[Compose merge rules](https://docs.docker.com/reference/compose-file/merge/).
+Use a distinct API alias if this network serves several Startnummer installations.
+
+Set these values in Startnummer's `.env.docker`:
 
 ```dotenv
 STARTNUMMER_COOKIE_SECURE=1
 STARTNUMMER_TRUSTED_PROXY_IPS=172.30.20.2
-STARTNUMMER_WORKER_VARIANT=intel
 ```
 
-Use the same Nginx server blocks, replacing the upstream block with the following.
-This variant requires Nginx 1.28 or newer:
+### 2. Configure the upstream
+
+Use the HTTPS server blocks above, replacing their upstream with this block.
+It requires Nginx 1.28 or newer:
 
 ```nginx
 upstream startnummer_backend {
@@ -167,36 +172,34 @@ upstream startnummer_backend {
 }
 ```
 
-Docker DNS resolves the API's unique network alias. The `resolve` option refreshes
-it when an API replacement gets a new address; see
+Docker DNS resolves the alias and refreshes it when the API is replaced. Inside
+the Nginx container, `127.0.0.1:8000` would refer to Nginx itself. See
 [Nginx upstream resolution](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#resolve).
-Inside the Nginx container, `127.0.0.1:8000` would refer to Nginx's own container.
 
-Include the proxy override on every Startnummer start/update. For the Intel server:
+### 3. Start with the override
+
+Include both files on every Startnummer start, pull, or update command:
 
 ```sh
 docker compose --env-file .env.docker -f compose.yaml -f compose.proxy.yaml config --quiet
 docker compose --env-file .env.docker -f compose.yaml -f compose.proxy.yaml up -d --wait
 ```
 
-Use the normal [deployment/update procedure](docker.md#updates-and-status) for
-pulling or building images and applying migrations. Finish active face review
-before replacing the worker. Bring up the proxy network before starting either
-project, and recreate Nginx when changing its network configuration.
+Create the shared network before starting either project. Recreate Nginx after
+changing its networks. Use the normal [update procedure](operations.md#update-startnummer)
+when replacing Startnummer, and finish active face review first.
 
 ## Upload limits and timeouts
 
-The `2100m` request limit leaves room above the default 2 GiB batch-photo limit.
-If you change import limits in Administration, adjust Nginx's limit as well. It
-covers the whole HTTP request, including roster data and multipart overhead.
-Nginx's default limit is only 1 MiB. Its
-[body-size and timeout directives](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size)
-describe these separately from the application's limits.
+The example's `2100m` body limit leaves room above the default 2 GiB batch-photo
+limit. It covers the entire request, including roster data and multipart overhead.
+If you raise import limits in Administration, raise this limit too. Nginx's default
+body limit is 1 MiB; see its
+[body-size directive](https://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size).
 
-The body/send timeouts allow pauses during large uploads. The read timeout allows
-time for synchronous gallery imports and publishing; adjust it to observed batch
-sizes and gallery response times. Analysis itself is queued and does not hold a
-request open for the whole inference run.
+Body/send timeouts allow pauses in large uploads. The read timeout allows time
+for gallery imports and publishing; adjust it to the sizes and durations you see.
+Queued analysis does not hold an HTTP request open for the whole inference run.
 
 ## Check the installation
 
@@ -208,20 +211,21 @@ sudo systemctl reload nginx
 curl --fail --silent --show-error https://startnummer.example.org/api/health/ready
 ```
 
-For containerized Nginx, run `nginx -t` and `nginx -s reload` through `docker compose
-exec nginx` in its own project. Check sign-in and a small upload through the public
-HTTPS URL. The readiness endpoint checks API/database/storage, not gallery access
-or model execution.
+For containerized Nginx, run `nginx -t` and `nginx -s reload` through
+`docker compose exec nginx` in its own project. Then sign in and upload a small
+batch through the public HTTPS URL. Readiness checks API/database/storage;
+it does not check gallery access or model execution.
 
-| Symptom | Check |
-| --- | --- |
-| Nginx returns 413 on upload | Raise `client_max_body_size` above the complete request size. |
-| Startnummer rejects file/batch size | Check import limits in Administration. |
-| Sign-in or saving returns 403 | Preserve the public `Host`, `Origin`, and `X-Requested-With` headers. |
-| Sign-in succeeds but the next request is 401 | Use HTTPS with secure cookies; check the browser's cookie rejection reason. |
-| Access logs show the proxy address | Set the trusted proxy peer correctly and recreate the API. |
-| Nginx returns 502 | Check API health, port/network membership, and Docker DNS resolution. |
-| Nginx returns 504 during import/publish | Check API/gallery logs and request duration; the API may still be processing. |
+| Symptom                                      | Check                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Nginx returns 413 on upload                  | Raise `client_max_body_size` above the full request size.                                        |
+| Startnummer rejects file/batch size          | Check import limits in Administration.                                                           |
+| Sign-in or saving returns 403                | Preserve public `Host`, `Origin`, and `X-Requested-With` headers.                                |
+| Sign-in succeeds but the next request is 401 | Use HTTPS with secure cookies; check the browser's cookie rejection reason.                      |
+| Logs show only the proxy address             | Correct the trusted proxy peer and recreate the API.                                             |
+| API readiness returns 503                    | Read database/storage status and check [storage access](operations.md#check-persistent-storage). |
+| Nginx returns 502                            | Check API health, port/network membership, and Docker DNS.                                       |
+| Import/publish returns 504                   | Check API/gallery logs and duration; processing may still be running.                            |
 
 After an uncertain publishing timeout, use **Check gallery outcome** before
 retrying the write.

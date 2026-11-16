@@ -1,140 +1,144 @@
 # Device profiles and native installation
 
-Choose one device extra alongside `api` to install the complete application.
-Each profile includes the shared worker and model adapters. `api` and `worker`
-contain no ML runtimes on their own.
+Use Docker for Linux deployments. Choose its worker variant in the
+[Docker guide](docker.md). On Apple silicon, install natively to use CoreML and
+the Neural Engine; Linux containers cannot access those macOS frameworks.
 
-| Extra | Target | Backend |
-| --- | --- | --- |
-| `cpu` | Linux or Apple-silicon macOS CPU inference | CPU-only PyTorch and ONNX Runtime |
-| `intel` | Linux x86-64, including the i7-8700 | OpenVINO CPU for pose, OCR, and faces |
-| `nvidia` | Linux x86-64 with an NVIDIA GPU | CUDA PyTorch and ONNX Runtime GPU |
-| `apple` | Native macOS 14+ on Apple silicon | CoreML/Neural Engine, with an optional MPS pose path |
+| Profile  | Target                             | Inference backend                           |
+| -------- | ---------------------------------- | ------------------------------------------- |
+| `cpu`    | Linux or Apple-silicon macOS       | CPU PyTorch and ONNX Runtime                |
+| `intel`  | Linux x86-64, including an i7-8700 | OpenVINO CPU                                |
+| `nvidia` | Linux x86-64 with an NVIDIA GPU    | CUDA PyTorch and ONNX Runtime GPU           |
+| `apple`  | Native macOS 14+ on Apple silicon  | CoreML/Neural Engine; optional MPS for pose |
+
+## Install on Apple silicon
+
+You need Python 3.12, uv, Node.js 24, and PostgreSQL. The database example below
+uses Docker Compose; skip it if you already have a PostgreSQL database.
+
+### 1. Install the application
+
+```sh
+git clone https://github.com/Feleuxens/startnummer.git
+cd startnummer
+uv sync --extra api --extra apple
+cp .env.example .env
+```
+
+To use the bundled development database:
+
+```sh
+docker compose -f compose.dev.yaml -p startnummer-dev up -d postgres
+```
+
+It listens on `127.0.0.1:5432` and matches the example `.env` database URL. Use a
+different project name from any production deployment on the same Docker host.
+
+### 2. Configure the app
+
+Generate secrets and an integration key:
+
+```sh
+uv run --no-sync python -c '
+import base64, secrets
+for name in ("STARTNUMMER_SESSION_SECRET", "STARTNUMMER_WORKER_SECRET"):
+    print(name + "=" + secrets.token_hex(32))
+print("STARTNUMMER_INTEGRATION_KEY=" + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
+'
+```
+
+Copy these values into `.env`. Set your database URL and photo-storage path, and
+set `STARTNUMMER_INFERENCE_BACKEND=apple`. Remove both Chevereto connection
+variables if you will configure the gallery later through Administration. Leave
+legacy username/password variables commented out for a new account.
+
+### 3. Build and start
+
+```sh
+uv run --no-sync startnummer migrate
+cd startnummer-web
+npm ci
+npm run build
+cd ..
+uv run --no-sync startnummer start --backend apple --detach
+uv run --no-sync startnummer status
+uv run --no-sync startnummer setup-code
+```
+
+Open <http://127.0.0.1:8000>, enter the setup code, and create the administrator.
+**Saved albums** confirms setup is complete. Try a small album using the
+[review guide](review.md). See [Operations](operations.md#run-or-stop-a-native-installation)
+for status, logs, and stopping the app.
+
+## Install another native profile
+
+For local Linux use, replace `apple` in the install command with one profile:
 
 ```sh
 uv sync --extra api --extra intel
-# Or select one of the other profiles:
-uv sync --extra api --extra nvidia
-uv sync --extra api --extra apple
-uv sync --extra api --extra cpu
 ```
 
-Use one profile at a time. `uv sync` removes packages belonging only to the previous
-profile; the lockfile declares device profiles incompatible. Finish face review and
-stop services before changing the environment they use. Do not use `--all-extras`.
-The older `inference` and `face` extras are CPU compatibility aliases. `ocr` and
-`vlm` remain experimental dependencies, outside the supported application profiles.
+Use `cpu` for CPU inference or `nvidia` for CUDA. The corresponding backend values
+are `cpu`, `openvino`, and `cuda`; set that value in `.env` and pass it to
+`startnummer start --backend NAME`.
 
-Linux CPU/Intel profiles use the official PyTorch CPU wheel index. Other packages
-come from PyPI. The NVIDIA profile installs only `onnxruntime-gpu`; CPU, Intel, and
-Apple install `onnxruntime`. InsightFace's pinned dependency metadata is adjusted
-in `pyproject.toml` because it names the CPU distribution even though both provide
-the same Python module. Use uv so these source/metadata rules apply; do not
-manually install overlapping ONNX packages or both OpenCV distributions.
+Finish face review and stop services before changing their Python environment.
+Choose one device profile at a time; `uv sync` removes dependencies belonging
+only to the previous profile. Do not use `--all-extras`.
 
-## Selecting the runtime
+Use uv so the lockfile's package rules apply. Linux CPU/Intel profiles use the
+PyTorch CPU index; NVIDIA installs `onnxruntime-gpu`. The other profiles install
+`onnxruntime`. Do not install both ONNX distributions or overlapping OpenCV
+packages. The older `inference` and `face` extras are CPU aliases; `ocr` and `vlm`
+are experimental and are not application profiles.
 
-Set `STARTNUMMER_INFERENCE_BACKEND` in `.env`, or pass `--backend` to the launcher
-or worker. Values are `cpu`, `openvino`, `cuda`, `apple`, and `auto`.
+## Check a runtime
 
-```sh
-uv run --no-sync startnummer start --backend openvino --detach
-uv run --no-sync startnummer start --backend cuda --detach
-uv run --no-sync startnummer start --backend apple --detach
-```
-
-Run only the command for your machine. An explicit backend reports an error when
-its required runtime/device is unavailable. `auto` selects installed Apple support
-on native Apple silicon, CUDA when available, then OpenVINO, and finally CPU.
-Use an explicit backend when checking a deployment so a CPU fallback cannot mask
-an unavailable accelerator.
-
-Test loading and inference without a database or private photos:
+Run the check for your selected backend, without a database or private photos:
 
 ```sh
-uv run --no-sync startnummer-worker --backend openvino --check-backend
-uv run --no-sync startnummer-worker --backend cuda --check-backend
 uv run --no-sync startnummer-worker --backend apple --check-backend
 ```
 
-The check uses a generated blank image in a disposable inference process. It may
-download weights and prepare model exports. It verifies startup, inference, and
-process exit, not athlete recognition, face matching accuracy, or the placement
-of every operation on an accelerator. Follow it with a representative album test.
+Replace `apple` with `cpu`, `openvino`, or `cuda` for another profile. The check
+uses a generated blank image in a disposable inference process. It may download
+weights or convert models. A successful check verifies loading, inference, and
+process exit. Follow it with a representative album to assess results and speed.
 
-For local application setup, configure PostgreSQL and `.env`, migrate, and build
-the frontend as described in the README. The launcher supports Linux and macOS;
-Node.js is needed to build the frontend for a source installation. On macOS it
-uses process birth times to guard against stale/reused PIDs.
+An explicit backend reports an error when its required runtime is unavailable.
+`auto` tries installed Apple support on native Apple silicon, available CUDA,
+OpenVINO, then CPU. Use an explicit value while checking accelerator availability.
 
-## Apple silicon
+## Choose Apple Neural Engine or GPU pose inference
 
-Run the worker natively on macOS to access Apple hardware. A Linux Docker image
-cannot execute CoreML/MPS through the Mac's native frameworks.
+The default `apple` backend uses FP16 CoreML pose weights. Face models and OCR
+request CoreML's `CPUAndNeuralEngine` mode. CoreML may place unsupported operations
+on CPU; actual operation placement and performance need checking on the Mac.
+The pose loader rejects a whole-model CPU-only fallback.
 
-The default `apple` backend exports YOLO11 pose weights to an FP16 CoreML model.
-The Ultralytics CoreML backend requests CPU and Neural Engine execution. Face
-models and OCR use ONNX Runtime's CoreML provider with `CPUAndNeuralEngine`.
-A whole-model CPU-only fallback in the pose backend is rejected. CoreML may still
-execute unsupported operations on CPU; verify actual placement and
-performance on the target Mac. Conversion success is not proof of Neural Engine
-utilization or equivalent matching results.
+To use the Apple GPU for pose inference, set this in `.env` before starting:
 
-To use the Apple GPU for pose inference instead, set:
-
-```sh
+```dotenv
 STARTNUMMER_APPLE_POSE_DEVICE=mps
 ```
 
-This keeps faces and OCR on the CoreML path. MPS is a GPU backend, not the Neural
-Engine. The default value is `coreml`. Converted models retain the existing pose
-and caption pipeline; they do not introduce a different caption generator.
+Faces and OCR keep the CoreML path. MPS uses the GPU; it does not use the Neural
+Engine. Set `coreml` to return to the default pose path.
 
-## Model storage and process lifetime
+## Store model weights
 
-`STARTNUMMER_MODEL_ROOT` defaults to `~/.cache/startnummer/models`. Docker sets it
-to `/data/models`. This directory holds public weights, versioned pose exports,
-and compiled model caches. `STARTNUMMER_OCR_MODEL_ROOT` can override the OCR
-weight location. It never holds album photos, extracted faces, embeddings, or
-review-session records.
+`STARTNUMMER_MODEL_ROOT` defaults to `~/.cache/startnummer/models`; Docker uses
+`/data/models`. Set it before starting the worker to choose another model disk.
+`STARTNUMMER_OCR_MODEL_ROOT` can select a separate OCR weight directory.
 
-Pose exports are cached by source-weight hash, converter/PyTorch/Ultralytics
-versions, format, and precision. Exports use a file lock and publish a completed
-directory atomically. A failed conversion leaves no published partial model.
-OpenVINO pose exports and face execution use FP32; Apple pose exports use FP16 for the
-Neural Engine path. Compare detection and matching results across backends before
-assuming numerical equivalence.
+This storage contains public weights, converted models, and compiled caches.
+It contains no album photos or extracted face data. See
+[Architecture](architecture.md#face-data-lifetime) for inference and review memory.
 
-Every album still runs in a fresh spawned process. Linux uses a parent-death
-signal. On macOS, a separate lightweight watchdog observes a pipe held only by the
-queue worker and kills inference if that pipe closes unexpectedly. This works
-independently of native code holding the inference process's Python GIL. The
-watchdog holds no model objects or face records. Normal completion waits for
-inference to exit before exposing review data. Review-session expiry checks both
-wall and monotonic deadlines, so laptop suspend cannot extend the original TTL.
+## Hardware verification
 
-## Docker
-
-`Dockerfile` selects the same extras as native installations:
-
-- `worker-cpu`: `cpu`
-- `worker-intel`: `intel`
-- `worker-nvidia`: `nvidia`
-
-The production file pulls the worker image selected by
-`STARTNUMMER_WORKER_VARIANT=cpu`, `intel`, or `nvidia`. NVIDIA also requires enabling
-the commented GPU reservation in `compose.yaml`. For local image builds, add
-`-f compose.yaml -f compose.build.yaml`; it selects the matching Dockerfile target.
-See [Docker deployment](docker.md) for configuration, persistent data, backups,
-and updates. Apple inference runs natively on macOS.
-
-
-## Verification status
-
-Linux x86-64 CPU and Intel runtime checks passed on generated images. OpenVINO
-recognition outputs were also compared with CPU ONNX on synthetic input without
-logging embeddings. The NVIDIA image passes library-loading checks; actual CUDA
-execution on the RTX 4070 Super remains to be tested. The macOS ARM64 installation
-plan and FP16 CoreML export are verified; native execution, Neural Engine placement,
-and matching quality still need testing on the M5 Pro. No inference accuracy or
-representative-album speedup is claimed by these checks.
+Linux CPU and Intel checks have passed on generated images, including a synthetic
+OpenVINO/CPU recognition comparison. NVIDIA library/image checks and Apple model
+conversion checks have also passed. Native CUDA execution on the RTX 4070 Super
+and Neural Engine execution on the M5 Pro still need target-hardware checks.
+These checks do not establish recognition accuracy or an album speedup.
