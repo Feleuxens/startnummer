@@ -276,6 +276,10 @@ def create_app(
         service.approve(owner, batch_id, body.photos)
         return {"approved": len(body.photos)}
 
+    @app.post("/api/batches/{batch_id}/photos/{photo_id}/approve", response_model=Photo)
+    def approve_photo(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner, service: Service):
+        return service.approve_photo(owner, batch_id, photo_id, body.revision)
+
     @app.post("/api/batches/{batch_id}/photos/{photo_id}/unapprove", response_model=Photo)
     def unapprove(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner, service: Service):
         return service.unapprove(owner, batch_id, photo_id, body.revision)

@@ -430,6 +430,20 @@ class Services:
             self.store.save(session, batch)
             return updated
 
+    def approve_photo(self, owner_id, batch_id, photo_id, revision):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            photo = batch.photo(photo_id)
+            if photo.revision != revision:
+                raise Conflict("This photo changed since it was opened; reload before approving")
+            if not photo.can_approve:
+                raise Conflict("Approval requires an analyzed photo, a nonblank caption, and replacement consent")
+            photo.conflicts_resolved = True
+            photo.approved_revision = photo.revision
+            self.store.save(session, batch)
+            return photo
+
     def approve(self, owner_id, batch_id, selected):
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)

@@ -3,15 +3,16 @@ import type { Schema, Photo, Selection, FaceView } from '../../api/types';
 export const photoUrl = (id: string) => `${import.meta.env.PUBLIC_API_URL || ''}/api/photos/${id}`;
 export const approved = (photo: Photo) =>
   photo.approved_revision != null && photo.approved_revision === photo.revision;
-export const eligible = (photo: Photo) =>
+export const canApprove = (photo: Photo) =>
   Boolean(
     photo.caption?.trim() &&
     photo.analysis &&
-    (photo.analysis.record.status === 'auto' || photo.conflicts_resolved) &&
     (!photo.current_description ||
       photo.replace_existing ||
       photo.current_description === photo.caption),
   );
+export const eligible = (photo: Photo) =>
+  canApprove(photo) && (photo.analysis?.record.status === 'auto' || photo.conflicts_resolved);
 export const selection = (photo: Photo): Selection => ({
   photo_id: photo.id,
   revision: photo.revision ?? 0,

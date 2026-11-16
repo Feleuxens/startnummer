@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SubmitEvent } from 'react';
 import type { Schema, Photo, Edit, FaceView } from '../../api/types';
 import DisciplineSelect from '../../components/DisciplineSelect';
-import { matchesRosterQuery, rosterPersonLabel, approved, eligible } from './model';
+import { matchesRosterQuery, rosterPersonLabel, approved, canApprove } from './model';
 
 export default function PhotoEditor({
   photo,
@@ -37,7 +37,6 @@ export default function PhotoEditor({
 }) {
   const [caption, setCaption] = useState(photo.caption ?? '');
   const [replace, setReplace] = useState(photo.replace_existing ?? false);
-  const [resolved, setResolved] = useState(photo.conflicts_resolved ?? false);
   const [patch, setPatch] = useState<Partial<Edit>>({});
   const [dirty, setDirty] = useState(false);
   const [rosterQuery, setRosterQuery] = useState('');
@@ -71,7 +70,7 @@ export default function PhotoEditor({
     const body: Edit = {
       revision: photo.revision ?? 0,
       replace_existing: replace,
-      conflicts_resolved: resolved,
+      conflicts_resolved: photo.conflicts_resolved,
       ...patch,
     };
     if (caption !== (photo.caption ?? '')) body.caption = caption;
@@ -340,19 +339,6 @@ export default function PhotoEditor({
             )}
           </label>
         )}
-        {record && (
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={resolved}
-              onChange={(event) => {
-                setResolved(event.target.checked);
-                mark();
-              }}
-            />
-            I reviewed and resolved uncertain evidence in this photo
-          </label>
-        )}
         <div className="editor-actions">
           <button type="submit" disabled={busy || !dirty}>
             {busy ? 'Working…' : 'Save caption and corrections'}
@@ -365,7 +351,7 @@ export default function PhotoEditor({
             <button
               type="button"
               className="primary"
-              disabled={busy || dirty || !eligible(photo)}
+              disabled={busy || dirty || !canApprove(photo)}
               onClick={() => void onApprove()}
             >
               Approve this photo

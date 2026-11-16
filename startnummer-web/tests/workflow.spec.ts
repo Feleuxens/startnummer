@@ -405,8 +405,6 @@ test('import, analyze, name an individual face, save, reopen, approve, apply, an
   await page.getByLabel('Or enter a name').fill('Taylor Visitor');
   await page.getByRole('button', { name: 'Save caption and corrections' }).click();
   await expect(page.getByLabel('Reviewed caption')).toHaveValue('Taylor Visitor | Synthetic Meet');
-  await page.getByLabel('I reviewed and resolved uncertain evidence in this photo').check();
-  await page.getByRole('button', { name: 'Save caption and corrections' }).click();
   await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Unapprove this photo', exact: true }),
@@ -490,6 +488,10 @@ test('review and approval affect one photo; approve all requires explicit confir
     .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(html) });
   await page.getByLabel('Album name', { exact: true }).fill('Four-photo approval scope');
   await page.getByRole('button', { name: 'Import and preview' }).click();
+  // A manual subject keeps the first photo in needs_review after analysis.
+  await page.getByRole('combobox', { name: 'Person to add', exact: true }).selectOption('0');
+  await page.getByRole('button', { name: 'Add to this photo', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Person added.' })).toBeVisible();
   await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled({
     timeout: 15000,
@@ -497,27 +499,41 @@ test('review and approval affect one photo; approve all requires explicit confir
   const batchId = new URL(page.url()).hash.split('/')[1];
   const readBatch = async () =>
     (await (await page.request.get(`/api/batches/${batchId}`)).json()).batch;
-  const sentCounts: number[] = [];
+  const bulkCounts: number[] = [];
+  const individualIds: string[] = [];
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().endsWith(`/batches/${batchId}/approve`)) {
-      sentCounts.push(request.postDataJSON().photos.length);
+      bulkCounts.push(request.postDataJSON().photos.length);
+    } else if (request.method() === 'POST' && request.url().endsWith('/approve')) {
+      individualIds.push(request.url().split('/').at(-2)!);
     }
   });
 
-  await page.getByLabel('I reviewed and resolved uncertain evidence in this photo').check();
-  await page.getByRole('button', { name: 'Save caption and corrections' }).click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Changes saved for original-1.jpg.' }),
-  ).toBeVisible();
   const saved = await readBatch();
+  expect(saved.photos[0].analysis.record.status).toBe('needs_review');
   expect(
     saved.photos.map((photo: { conflicts_resolved: boolean }) => photo.conflicts_resolved),
-  ).toEqual([true, false, false, false]);
+  ).toEqual([false, false, false, false]);
   expect(
     saved.photos.every(
       (photo: { approved_revision: number | null }) => photo.approved_revision === null,
     ),
   ).toBe(true);
+  await expect(
+    page.getByLabel('I reviewed and resolved uncertain evidence in this photo'),
+  ).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Approve all eligible (3)…', exact: true }).click();
+  const initialPreview = page.getByRole('dialog', { name: 'Approve all eligible captions?' });
+  await expect(initialPreview.getByRole('heading', { name: 'original-1.jpg' })).toHaveCount(0);
+  await initialPreview.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByLabel('Reviewed caption').fill('Unsaved review');
+  await expect(
+    page.getByRole('button', { name: 'Approve this photo', exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel('Reviewed caption').fill(saved.photos[0].caption);
+  await page.getByRole('button', { name: 'Save caption and corrections' }).click();
+  await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled();
 
   await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
   await expect(
@@ -530,7 +546,12 @@ test('review and approval affect one photo; approve all requires explicit confir
         photo.approved_revision === photo.revision,
     ),
   ).toEqual([true, false, false, false]);
-  expect(sentCounts).toEqual([1]);
+  expect(individuallyApproved.photos[0].conflicts_resolved).toBe(true);
+  expect(individuallyApproved.photos[0].analysis.record.status).toBe('needs_review');
+  expect(individualIds).toEqual([saved.photos[0].id]);
+  expect(bulkCounts).toEqual([]);
+  await page.getByRole('combobox', { name: 'Show' }).selectOption('unresolved');
+  await expect(page.getByText('No photos match this filter.')).toBeVisible();
 
   // Bulk approval covers the whole album, even when its eligible photos are
   // hidden by the filter. The confirmation must say so and name the targets.
@@ -555,17 +576,17 @@ test('review and approval affect one photo; approve all requires explicit confir
   await page.setViewportSize({ width: 1440, height: 1000 });
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  expect(sentCounts).toEqual([1]);
+  expect(bulkCounts).toEqual([]);
   await approveAll.click();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  expect(sentCounts).toEqual([1]);
+  expect(bulkCounts).toEqual([]);
   await approveAll.click();
   await dialog.getByRole('button', { name: 'Approve 3 captions', exact: true }).click();
   await expect(
     page.getByText('4 photos · 1 roster entries · 4 approved', { exact: true }),
   ).toBeVisible();
-  expect(sentCounts).toEqual([1, 3]);
+  expect(bulkCounts).toEqual([3]);
   const allApproved = await readBatch();
   expect(
     allApproved.photos.every(
@@ -1024,6 +1045,9 @@ test('add roster people without detection, generate captions, remove an entry, a
   const readBatch = async () =>
     (await (await page.request.get(`/api/batches/${batchId}`)).json()).batch;
   expect((await readBatch()).photos[0].analysis).toBeNull();
+  await expect(
+    page.getByRole('button', { name: 'Approve this photo', exact: true }),
+  ).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Add to this photo', exact: true })).toBeDisabled();
   await page.getByLabel('Find roster person', { exact: true }).fill('nobody-in-this-roster');
   await expect(page.getByText('No roster entries match this search.')).toBeVisible();
@@ -1033,9 +1057,7 @@ test('add roster people without detection, generate captions, remove an entry, a
   await expect(page.getByLabel('Reviewed caption')).toHaveValue(
     'Alex Example (12, Example Club) über 100m/over 100m | Example Meet',
   );
-  await expect(
-    page.getByRole('button', { name: 'Approve this photo', exact: true }),
-  ).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Name detected face 1' })).toHaveCount(0);
   await page.getByLabel('Club (optional)', { exact: true }).fill('Example Club');
   await page.getByRole('button', { name: 'Save caption and corrections' }).click();
@@ -1064,9 +1086,10 @@ test('add roster people without detection, generate captions, remove an entry, a
   await expect(page.getByLabel('Reviewed caption')).toHaveValue(
     'Alex Example (12, Example Club) über 100m/over 100m | Example Meet',
   );
-  await page.getByLabel('I reviewed and resolved uncertain evidence in this photo').check();
-  await page.getByRole('button', { name: 'Save caption and corrections' }).click();
   await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Unapprove this photo', exact: true }),
+  ).toBeEnabled();
   const before = await readBatch();
   expect(before.photos[0].analysis.record.subjects).toHaveLength(1);
   expect(before.photos[0].analysis.record.subjects[0].added_manually).toBe(true);

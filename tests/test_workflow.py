@@ -236,6 +236,72 @@ def test_approval_gates_and_changed_caption_revokes_approval(environment):
         service.approve(batch.album.owner_id, batch.album.id, [Selection(photo_id=photo.id, revision=saved.revision)])
 
 
+@pytest.mark.parametrize("status", [Status.AUTO, Status.NEEDS_REVIEW, Status.FAILED])
+def test_individual_approval_acknowledges_only_selected_photo(environment, status):
+    service, _ = environment
+    batch = analyzed(service)
+    photo = batch.photos[0]
+    photo.analysis.record.status = status
+    with service.store.transaction(batch.album.owner_id) as db:
+        service.store.save(db, batch)
+    result = service.approve_photo(batch.album.owner_id, batch.album.id, photo.id, photo.revision)
+    assert result.approved and result.conflicts_resolved and result.eligible
+    assert result.analysis == photo.analysis
+    assert result.caption == photo.caption and result.revision == photo.revision
+    assert service.store.get(batch.album.owner_id, batch.album.id).photos[1] == batch.photos[1]
+    assert service.approve_photo(batch.album.owner_id, batch.album.id, photo.id, photo.revision) == result
+    edited = service.edit(
+        batch.album.owner_id, batch.album.id, photo.id, Edit(revision=photo.revision, caption="Edited caption")
+    )
+    assert not edited.approved
+    service.approve_photo(batch.album.owner_id, batch.album.id, photo.id, edited.revision)
+    unapproved = service.unapprove(batch.album.owner_id, batch.album.id, photo.id, edited.revision)
+    assert not unapproved.approved and unapproved.conflicts_resolved
+
+
+@pytest.mark.parametrize("gate", ["blank", "unanalyzed", "replacement", "stale", "owner", "busy"])
+def test_individual_approval_preserves_safety_gates(environment, gate):
+    service, _ = environment
+    batch = analyzed(service)
+    photo = batch.photos[0]
+    photo.analysis.record.status = Status.NEEDS_REVIEW
+    if gate == "blank":
+        photo.caption = " \n "
+    elif gate == "unanalyzed":
+        photo.analysis = None
+    elif gate == "replacement":
+        photo.current_description = "Existing description"
+    with service.store.transaction(batch.album.owner_id) as db:
+        service.store.save(db, batch)
+    if gate == "busy":
+        service.store.enqueue(batch.album.owner_id, batch.album.id)
+    before = service.store.get(batch.album.owner_id, batch.album.id)
+    with pytest.raises(Missing if gate == "owner" else Conflict):
+        service.approve_photo(
+            uuid4() if gate == "owner" else batch.album.owner_id,
+            batch.album.id,
+            photo.id,
+            photo.revision + (gate == "stale"),
+        )
+    saved = service.store.get(batch.album.owner_id, batch.album.id)
+    assert saved.photos == before.photos
+
+
+def test_bulk_approval_cannot_acknowledge_uncertainty_even_for_one_photo(environment):
+    service, _ = environment
+    batch = analyzed(service)
+    uncertain = batch.photos[1]
+    uncertain.analysis.record.status = Status.NEEDS_REVIEW
+    with service.store.transaction(batch.album.owner_id) as db:
+        service.store.save(db, batch)
+    for photos in ([uncertain], batch.photos):
+        with pytest.raises(Conflict, match="resolved"):
+            service.approve(
+                batch.album.owner_id, batch.album.id, [Selection(photo_id=p.id, revision=p.revision) for p in photos]
+            )
+        assert service.store.get(batch.album.owner_id, batch.album.id).photos == batch.photos
+
+
 def test_unapprove_preserves_caption_evidence_other_photos_and_publishing(environment):
     service, _ = environment
     batch = analyzed(service)

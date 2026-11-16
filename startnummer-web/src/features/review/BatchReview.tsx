@@ -82,6 +82,10 @@ export default function BatchReview({
     await reviewApi.unapprovePhoto(batchId, photo);
     await refresh();
   }
+  async function approvePhoto(photo: Photo) {
+    await reviewApi.approvePhoto(batchId, photo);
+    await refresh();
+  }
   function selectPhoto(photo: Photo) {
     if (busy) return;
     if (photo.id === selectedId) {
@@ -281,7 +285,7 @@ export default function BatchReview({
                   }
                   onApprove={() =>
                     action(
-                      () => approvePhotos([selected]),
+                      () => approvePhoto(selected),
                       `Caption approved for ${selected.display_name}.`,
                     )
                   }

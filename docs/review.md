@@ -97,14 +97,15 @@ session. It cannot overwrite later edits, restore approval, or undo gallery writ
 
 ## 4. Approve reviewed captions
 
-Save edits first. Resolve uncertain evidence and choose **Approve this photo**.
-The evidence checkbox and approval affect only the open photo. **Unapprove this
-photo** removes approval while keeping the caption and evidence.
+Save edits first, then choose **Approve this photo**. Approval also confirms that
+you have reviewed any uncertain evidence in that photo. Warnings remain visible.
+**Unapprove this photo** removes approval while keeping the caption and evidence.
 
 For several captions, use **Approve all eligible**. Its confirmation lists the
 photos it affects, including any hidden by the current filter. Blank captions
-and unresolved conflicts are excluded. Replacing a nonempty gallery description
-requires explicit consent. Edits and analysis reruns remove approval.
+and photos with unacknowledged uncertainty are excluded; approve those individually
+after review. Replacing a nonempty gallery description requires explicit consent.
+Edits and analysis reruns remove approval.
 
 ## 5. Apply descriptions to Chevereto
 

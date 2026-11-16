@@ -21,9 +21,10 @@ Previous/next controls are centered below the image and follow the current filte
 On narrow screens, a thumbnail opens its detail view; **Back to photos** returns
 to the contact sheet.
 
-**Approve this photo** and its evidence checkbox affect only the open photo.
-**Approve all eligible** previews every affected photo, including filtered-out
-ones. Publishing requires its own preview and confirmation.
+**Approve this photo** also acknowledges uncertain evidence, affecting only the
+open photo. **Approve all eligible** skips unacknowledged uncertainty and previews
+every affected photo, including filtered-out ones. Publishing requires its own
+preview and confirmation.
 
 ## Roster and discipline selection
 

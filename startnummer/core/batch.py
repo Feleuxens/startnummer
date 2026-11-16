@@ -67,15 +67,18 @@ class Photo(BaseModel):
         return self.approved_revision is not None and self.approved_revision == self.revision
 
     @property
-    def eligible(self) -> bool:
-        status = self.analysis.record.status if self.analysis else Status.PENDING
+    def can_approve(self) -> bool:
         return bool(
             self.caption
             and self.caption.strip()
             and self.analysis is not None
-            and (status is Status.AUTO or self.conflicts_resolved)
             and (not self.current_description or self.replace_existing or self.current_description == self.caption)
         )
+
+    @property
+    def eligible(self) -> bool:
+        status = self.analysis.record.status if self.analysis else Status.PENDING
+        return self.can_approve and (status is Status.AUTO or self.conflicts_resolved)
 
     def changed(self) -> None:
         self.revision += 1

@@ -50,6 +50,14 @@ export const approvePhotos = async (batchId: string, photos: Selection[]) =>
     }),
   );
 
+export const approvePhoto = async (batchId: string, photo: Photo) =>
+  unwrap(
+    await api.POST('/api/batches/{batch_id}/photos/{photo_id}/approve', {
+      params: { path: { batch_id: batchId, photo_id: photo.id } },
+      body: { revision: photo.revision },
+    }),
+  );
+
 export const unapprovePhoto = async (batchId: string, photo: Photo) =>
   unwrap(
     await api.POST('/api/batches/{batch_id}/photos/{photo_id}/unapprove', {
