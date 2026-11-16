@@ -16,29 +16,40 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'release' }}
 
 jobs:
-  checks:
-    name: Python and browser checks
+  plan:
+    name: Plan image publication
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
     outputs:
       namespace: ${{ steps.plan.outputs.namespace }}
       suffix: ${{ steps.plan.outputs.suffix }}
       alias: ${{ steps.plan.outputs.alias }}
-      publish: ${{ steps.plan.outputs.publish }}
+      operation: ${{ steps.plan.outputs.operation }}
       revision: ${{ steps.plan.outputs.revision }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.release.tag_name || github.sha }}
           persist-credentials: false
+      - name: Plan image tags
+        id: plan
+        run: python scripts/container_tags.py >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Python and browser checks
+    needs: plan
+    if: needs.plan.outputs.operation != 'promote'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.revision }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: 0.13.7
           python-version: '3.12'
           enable-cache: true
-      - name: Plan image tags
-        id: plan
-        run: python scripts/container_tags.py >> "$GITHUB_OUTPUT"
       - name: Install Python dependencies
         run: uv sync --locked --extra api
       - name: Check Python
@@ -67,8 +78,8 @@ jobs:
 
   pr-build:
     name: Check ${{ matrix.target }} image
-    needs: checks
-    if: needs.checks.outputs.publish != 'true'
+    needs: [plan, checks]
+    if: needs.plan.outputs.operation == 'check'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -78,6 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -90,8 +102,8 @@ jobs:
 
   publish:
     name: Publish ${{ matrix.variant }}
-    needs: checks
-    if: needs.checks.outputs.publish == 'true'
+    needs: [plan, checks]
+    if: needs.plan.outputs.operation == 'build'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -120,7 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.checks.outputs.revision }}
+          ref: ${{ needs.plan.outputs.revision }}
           persist-credentials: false
       - name: Make room for model runtimes
         run: |
@@ -140,18 +152,23 @@ jobs:
           target: ${{ matrix.target }}
           platforms: linux/amd64
           push: true
-          tags: ${{ needs.checks.outputs.namespace }}/${{ matrix.image }}:${{ matrix.prefix }}${{ needs.checks.outputs.suffix }}
+          tags: ${{ needs.plan.outputs.namespace }}/${{ matrix.image }}:${{ matrix.prefix }}${{ needs.plan.outputs.suffix }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.checks.outputs.revision }}
-            org.opencontainers.image.version=${{ needs.checks.outputs.suffix }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.revision }}
+            org.opencontainers.image.version=${{ needs.plan.outputs.suffix }}
+          annotations: |
+            index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            index:org.opencontainers.image.revision=${{ needs.plan.outputs.revision }}
+            index:io.startnummer.build.run-id=${{ github.run_id }}
+            index:io.startnummer.build.run-attempt=${{ github.run_attempt }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=image-${{ matrix.target }}
           cache-to: type=gha,mode=min,scope=image-${{ matrix.target }}
       - name: Record published digest
         env:
-          IMAGE: ${{ needs.checks.outputs.namespace }}/${{ matrix.image }}
+          IMAGE: ${{ needs.plan.outputs.namespace }}/${{ matrix.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
           VARIANT: ${{ matrix.variant }}
         run: |
@@ -167,8 +184,8 @@ jobs:
 
   aliases:
     name: Update moving tags
-    needs: [checks, publish]
-    if: needs.checks.outputs.alias != ''
+    needs: [plan, publish]
+    if: needs.plan.outputs.alias == 'edge'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -188,23 +205,14 @@ jobs:
           merge-multiple: true
       - name: Tag the completed image set
         env:
-          ALIAS: ${{ needs.checks.outputs.alias }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          REVISION: ${{ needs.checks.outputs.revision }}
+          ALIAS: ${{ needs.plan.outputs.alias }}
+          REVISION: ${{ needs.plan.outputs.revision }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ "$ALIAS" == latest ]]; then
-            current=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
-            if [[ "$current" != "$RELEASE_TAG" ]]; then
-              echo "Version images published; this is not GitHub's latest release." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          else
-            current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
-            if [[ "$current" != "$REVISION" ]]; then
-              echo "Commit images published; main has moved on." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$current" != "$REVISION" ]]; then
+            echo "Commit images published; main has moved on." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           for variant in web cpu intel nvidia; do
             source=$(cat "digests/$variant.txt")
@@ -215,3 +223,30 @@ jobs:
             docker buildx imagetools create --tag "$tag" "$source"
             printf '%s\n' "Updated $tag" >> "$GITHUB_STEP_SUMMARY"
           done
+
+  promote:
+    name: Promote release images
+    needs: plan
+    if: needs.plan.outputs.operation == 'promote'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.revision }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the successful main build by digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python -m scripts.promote_images

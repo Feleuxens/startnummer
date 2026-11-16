@@ -20,7 +20,7 @@ def image_plan(event_name, event, ref, revision, owner, project_version):
         raise ValueError("Invalid GitHub owner")
     suffix = f"sha-{revision}"
     alias = ""
-    publish = False
+    operation = "check"
     if event_name == "release":
         release = event["release"]
         match = VERSION.fullmatch(release["tag_name"])
@@ -37,25 +37,25 @@ def image_plan(event_name, event, ref, revision, owner, project_version):
             raise ValueError("A prerelease version must be marked as a GitHub prerelease")
         if release["draft"]:
             raise ValueError("Draft releases cannot publish images")
-        publish = True
+        operation = "promote"
         alias = "" if release["prerelease"] else "latest"
     elif event_name in {"push", "workflow_dispatch"} and ref == "refs/heads/main":
-        publish = True
+        operation = "build"
         alias = "edge"
     return {
         "namespace": f"ghcr.io/{owner.lower()}",
         "suffix": suffix,
         "alias": alias,
-        "publish": str(publish).lower(),
+        "operation": operation,
         "revision": revision,
     }
 
 
-def main():
+def environment_plan():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    plan = image_plan(
+    return image_plan(
         os.environ["GITHUB_EVENT_NAME"],
         event,
         os.environ["GITHUB_REF"],
@@ -63,7 +63,10 @@ def main():
         os.environ["GITHUB_REPOSITORY_OWNER"],
         version,
     )
-    for key, value in plan.items():
+
+
+def main():
+    for key, value in environment_plan().items():
         print(f"{key}={value}")
 
 

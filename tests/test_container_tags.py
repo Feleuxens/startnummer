@@ -19,7 +19,7 @@ def test_stable_release_uses_version_and_latest(tag):
         "namespace": "ghcr.io/feleuxens",
         "suffix": "0.1.0",
         "alias": "latest",
-        "publish": "true",
+        "operation": "promote",
         "revision": SHA,
     }
 
@@ -28,7 +28,7 @@ def test_prerelease_never_updates_latest():
     plan = release("v0.2.0-rc.1", prerelease=True, version="0.2.0-rc.1")
     assert plan["suffix"] == "0.2.0-rc.1"
     assert plan["alias"] == ""
-    assert plan["publish"] == "true"
+    assert plan["operation"] == "promote"
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
@@ -36,7 +36,7 @@ def test_main_development_build_uses_commit_and_edge(event):
     plan = image_plan(event, {}, "refs/heads/main", SHA, "Feleuxens", "0.1.0")
     assert plan["suffix"] == "sha-" + SHA
     assert plan["alias"] == "edge"
-    assert plan["publish"] == "true"
+    assert plan["operation"] == "build"
 
 
 @pytest.mark.parametrize(
@@ -45,7 +45,7 @@ def test_main_development_build_uses_commit_and_edge(event):
 )
 def test_untrusted_and_non_main_builds_do_not_publish(event, ref):
     plan = image_plan(event, {}, ref, SHA, "Feleuxens", "0.1.0")
-    assert plan["publish"] == "false"
+    assert plan["operation"] == "check"
     assert plan["alias"] == ""
 
 
