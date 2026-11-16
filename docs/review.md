@@ -9,6 +9,9 @@ first. Other accounts can upload and review photos in their own workspace.
 ## 1. Import photos and a roster
 
 Choose **New batch**. Select a Chevereto album or upload JPEG, PNG, or WebP files.
+Multi-frame JPEGs (MPO) are supported; Startnummer uses the primary image and
+keeps the original file unchanged.
+
 Use original photos; leave out generated `.annotated.jpg` and `.faces.jpg` previews.
 Startnummer does not automatically exclude those preview files.
 

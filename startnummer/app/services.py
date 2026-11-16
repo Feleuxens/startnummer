@@ -147,12 +147,16 @@ class Services:
                 raise WorkflowError(f"Image exceeds the size limit: {PurePath(photo.name).name}")
             try:
                 with Image.open(BytesIO(photo.data)) as image:
-                    if image.format not in {"JPEG", "PNG", "WEBP"}:
-                        raise WorkflowError("Supported photo formats are JPEG, PNG, and WebP")
+                    if image.format not in {"JPEG", "MPO", "PNG", "WEBP"}:
+                        raise WorkflowError(
+                            f"Supported photo formats are JPEG, PNG, and WebP; unsupported file: "
+                            f"{PurePath(photo.name).name} ({image.format})"
+                        )
                     width, height = image.size
                     if width * height > 50_000_000:
                         raise WorkflowError("Image dimensions exceed the supported limit")
-                    mime = Image.MIME[image.format]
+                    # MPO stores additional JPEG frames; serve the unchanged primary JPEG to the browser.
+                    mime = "image/jpeg" if image.format == "MPO" else Image.MIME[image.format]
                     if image.getexif().get(274, 1) in {5, 6, 7, 8}:
                         width, height = height, width
                     image.verify()

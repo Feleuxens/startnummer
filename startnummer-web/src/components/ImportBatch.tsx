@@ -72,7 +72,7 @@ export default function ImportBatch({
               <input
                 name="photos"
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/jpeg,image/mpo,.mpo,image/png,image/webp"
                 multiple
                 required
                 onChange={(event) => {

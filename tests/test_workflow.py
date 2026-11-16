@@ -32,6 +32,7 @@ from startnummer.core.batch import (
     Destination,
     Missing,
     Publication,
+    WorkflowError,
     WriteResult,
     WriteState,
 )
@@ -209,6 +210,53 @@ def test_rejects_empty_roster_and_invalid_images_without_blobs(environment):
     with pytest.raises(Exception, match="valid supported image"):
         service.import_batch(
             service.settings.owner_id, "", "", [InputPhoto("x.jpg", b"not an image")], None, HTML, None
+        )
+    assert not service.settings.blob_root.exists()
+
+
+@pytest.mark.parametrize("gallery", [False, True])
+def test_import_accepts_multi_frame_jpeg_without_reencoding(environment, gallery):
+    service, _ = environment
+    output = BytesIO()
+    image = Image.new("RGB", (40, 30), "gray")
+    exif = Image.Exif()
+    exif[274] = 6
+    image.save(
+        output,
+        format="MPO",
+        save_all=True,
+        append_images=[Image.new("RGB", (10, 8), "black")],
+        exif=exif,
+    )
+    data = output.getvalue()
+    with Image.open(BytesIO(data)) as original:
+        assert original.format == "MPO" and original.n_frames == 2
+    if gallery:
+        service.fetch = lambda url, **kwargs: data
+    batch = service.import_batch(
+        service.settings.owner_id,
+        "Multi-frame JPEG",
+        "",
+        [] if gallery else [InputPhoto("original.jpg", data)],
+        "http://gallery.test/album/a" if gallery else None,
+        HTML,
+        None,
+    )
+    saved = service.store.get(batch.album.owner_id, batch.album.id)
+    for photo in saved.photos:
+        assert photo.mime_type == "image/jpeg"
+        assert (photo.width, photo.height) == (30, 40)
+        assert (service.settings.blob_root / str(batch.album.owner_id) / photo.blob_key).read_bytes() == data
+        assert bool(photo.destination) == gallery
+
+
+def test_unsupported_image_error_identifies_the_file_and_format(environment):
+    service, _ = environment
+    output = BytesIO()
+    Image.new("RGB", (20, 30)).save(output, format="TIFF")
+    with pytest.raises(WorkflowError, match=r"unsupported file: unexpected.jpg \(TIFF\)"):
+        service.import_batch(
+            service.settings.owner_id, "", "", [InputPhoto("unexpected.jpg", output.getvalue())], None, HTML, None
         )
     assert not service.settings.blob_root.exists()
 
