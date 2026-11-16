@@ -1,3 +1,5 @@
+[![Build and publish images](https://github.com/Feleuxens/startnummer/actions/workflows/images.yml/badge.svg)](https://github.com/Feleuxens/startnummer/actions/workflows/images.yml)
+
 # Startnummer
 
 Startnummer helps sports photographers turn photos and a competition roster into
