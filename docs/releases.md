@@ -97,11 +97,13 @@ new release image set.
 
 Stable aliases move only after every version tag is verified and GitHub identifies
 this release as latest. Prereleases and older releases receive version tags without
-moving stable aliases. Main's `edge` aliases move only while its commit remains
-current. Registry updates are separate operations; if promotion fails partway,
-rerun the failed promotion job. No image rebuild is needed for that retry.
+moving stable aliases. Main's `edge` aliases move only for the newest main push or
+manual image-build run. Later commits with `[skip ci]` do not block that update;
+retrying an older run cannot replace a newer build's aliases. Registry updates
+are separate operations; if promotion fails partway, rerun the failed promotion
+job. No image rebuild is needed for that retry.
 
-Publishing jobs use `GITHUB_TOKEN`; the release job needs `actions: read` to check
-the source workflow and `packages: write` to add registry tags. No publishing PAT
-is required. Actions are pinned to commit SHAs. Weights download separately at
-runtime and are outside the image SBOM.
+Publishing jobs use `GITHUB_TOKEN`. The release and edge-tag jobs need
+`actions: read` to check workflow runs and `packages: write` to add registry tags.
+No publishing PAT is required. Actions are pinned to commit SHAs. Weights download
+separately at runtime and are outside the image SBOM.
