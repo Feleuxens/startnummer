@@ -3,6 +3,8 @@ name: startnummer
 x-runtime: &runtime
   init: true
   restart: unless-stopped
+  # Override when application bind mounts belong to another UID/GID.
+  # user: "1000:1000"
   read_only: true
   security_opt:
     - no-new-privileges:true
@@ -16,6 +18,8 @@ x-runtime: &runtime
 x-api: &api
   <<: *runtime
   image: ${STARTNUMMER_IMAGE_NAMESPACE:-ghcr.io/feleuxens}/startnummer-web:${STARTNUMMER_IMAGE_TAG:-latest}
+  # Override when application bind mounts belong to another UID/GID.
+  # user: "1000:1000"
   env_file:
     - ${STARTNUMMER_ENV_FILE:-.env.docker}
   environment:
@@ -34,7 +38,7 @@ x-api: &api
 
 services:
   postgres:
-    image: postgres:17-bookworm
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: startnummer

@@ -93,6 +93,15 @@ def test_compose_import_review_restart_and_restore(tmp_path):
         assert not resolved["services"]["postgres"].get("ports")
         compose("build", timeout=1800)
         compose("up", "-d", "--wait", "--wait-timeout", "90")
+        for name in ("api", "worker"):
+            compose(
+                "exec",
+                "-T",
+                name,
+                "python",
+                "-c",
+                "import os; assert (os.getuid(), os.getgid()) == (1000, 1000)",
+            )
         compose("exec", "-T", "worker", "python", "-c", "import torch; assert torch.version.cuda is None")
         compose(
             "exec",

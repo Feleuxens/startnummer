@@ -91,3 +91,13 @@ def test_uncommenting_gpu_block_reserves_one_nvidia_device(resolve, tmp_path):
     assert worker["deploy"]["resources"]["reservations"]["devices"] == [
         {"driver": "nvidia", "count": 1, "capabilities": ["gpu"]}
     ]
+
+
+def test_user_override_applies_to_app_services_without_changing_postgres(resolve, tmp_path):
+    text = (ROOT / "compose.yaml").read_text()
+    override = tmp_path / "compose.user.yaml"
+    override.write_text(text.replace('  # user: "1000:1000"', '  user: "2000:2000"'))
+    services = resolve(override)["services"]
+    for name in ("api", "worker", "migrate", "ops"):
+        assert services[name]["user"] == "2000:2000"
+    assert "user" not in services["postgres"]

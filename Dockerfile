@@ -44,8 +44,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --extra api --extra intel --no-install-project
 
 FROM base AS runtime
-RUN groupadd --gid 10001 startnummer \
-    && useradd --uid 10001 --gid startnummer --no-create-home startnummer \
+RUN groupadd --gid 1000 startnummer \
+    && useradd --uid 1000 --gid startnummer --no-create-home startnummer \
     && mkdir -p /data/photos /data/models /backups \
     && chown -R startnummer:startnummer /data /backups
 COPY startnummer/ startnummer/
@@ -53,7 +53,7 @@ COPY migrations/ migrations/
 COPY alembic.ini ./
 COPY --from=frontend /app/startnummer-web/dist/ startnummer-web/dist/
 ENV PYTHONPATH=/app HOME=/data/models
-USER 10001:10001
+USER 1000:1000
 
 FROM runtime AS api
 COPY --from=api-deps /app/.venv /app/.venv
