@@ -1,6 +1,4 @@
-import hashlib
-import hmac
-import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -12,8 +10,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine
 
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
+from startnummer.adapters.db.accounts import Account
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import HttpFaceSessions, propagation_problem
+from startnummer.app.account_routes import account_routes
+from startnummer.app.auth import Authentication
 from startnummer.app.contracts import (
     AddPerson,
     Administration,
@@ -29,7 +30,6 @@ from startnummer.app.contracts import (
     FaceView,
     IntegrationRevision,
     IntegrationStatus,
-    Login,
     PropagationApply,
     PropagationPreview,
     PropagationRequest,
@@ -37,7 +37,6 @@ from startnummer.app.contracts import (
     Revision,
     RuntimeSettings,
     Selected,
-    SessionInfo,
 )
 from startnummer.app.integrations import Integrations
 from startnummer.app.operations import administration, database_healthy, effective_settings, storage_healthy
@@ -66,6 +65,35 @@ def create_app(
     service = Services(store, blobs, settings, sessions, gallery if gallery is not None else integrations, fetch)
     app = FastAPI(title="Startnummer", version="0.1.0", openapi_url="/api/openapi.json", docs_url="/api/docs")
     app.state.services = service
+    authentication = Authentication(store.engine, settings)
+    app.state.authentication = authentication
+
+    def integrations_for(user):
+        return Integrations(
+            store,
+            replace(settings, owner_id=user.id, username=user.username),
+            **({"factory": integration_factory} if integration_factory else {}),
+        )
+
+    def service_for(user):
+        scoped = replace(settings, owner_id=user.id, username=user.username)
+        if not user.is_admin:
+            scoped = replace(scoped, chevereto_url=None, chevereto_dsn=None)
+        destination = (gallery if gallery is not None else integrations_for(user)) if user.is_admin else None
+        return Services(store, blobs, scoped, sessions, destination, fetch)
+
+    principal, administrator = account_routes(app, authentication, settings, service_for)
+    User = Annotated[Account, Depends(principal)]
+    Admin = Annotated[Account, Depends(administrator)]
+
+    def owner_identity(user: User):
+        return user.id
+
+    def request_service(user: User):
+        return service_for(user)
+
+    Owner = Annotated[UUID, Depends(owner_identity)]
+    Service = Annotated[Services, Depends(request_service)]
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):
@@ -99,24 +127,6 @@ def create_app(
         status = 404 if isinstance(exc, Missing) else 409 if isinstance(exc, Conflict) else 400
         return JSONResponse({"detail": str(exc)}, status_code=status)
 
-    def signature(payload):
-        return hmac.new(settings.session_secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-
-    def principal(request: Request) -> UUID:
-        cookie = request.cookies.get("startnummer_session", "")
-        try:
-            identity, expires, supplied = cookie.split(".")
-            payload = identity + "." + expires
-            if not hmac.compare_digest(supplied, signature(payload)) or int(expires) <= time.time():
-                raise ValueError
-            if identity != str(settings.owner_id):
-                raise ValueError
-        except (ValueError, TypeError):
-            raise HTTPException(401, "Sign in to Startnummer") from None
-        return settings.owner_id
-
-    Owner = Annotated[UUID, Depends(principal)]
-
     @app.get("/api/health/live", include_in_schema=False)
     def live():
         return {"alive": True}
@@ -130,29 +140,29 @@ def create_app(
         return {"ready": healthy, "database": database, "storage": storage}
 
     @app.get("/api/admin", response_model=Administration)
-    def get_administration(owner: Owner):
-        return administration(store, settings)
+    def get_administration(user: Admin):
+        return administration(store, replace(settings, owner_id=user.id))
 
     @app.put("/api/admin/settings", response_model=RuntimeSettings)
-    def update_settings(body: RuntimeSettings, owner: Owner):
-        revision = store.save_settings(owner, body.revision, body.model_dump(exclude={"revision"}))
+    def update_settings(body: RuntimeSettings, user: Admin):
+        revision = store.save_settings(user.id, body.revision, body.model_dump(exclude={"revision"}))
         return body.model_copy(update={"revision": revision})
 
     @app.get("/api/admin/integrations/chevereto", response_model=IntegrationStatus)
-    def integration_status(owner: Owner):
-        return integrations.status()
+    def integration_status(user: Admin):
+        return integrations_for(user).status()
 
     @app.post("/api/admin/integrations/chevereto/test", response_model=ConnectionTest)
-    def test_integration(owner: Owner, body: CheveretoConnection | None = None):
-        return integrations.test(body)
+    def test_integration(user: Admin, body: CheveretoConnection | None = None):
+        return integrations_for(user).test(body)
 
     @app.put("/api/admin/integrations/chevereto", response_model=IntegrationStatus)
-    def save_integration(body: CheveretoConnection, owner: Owner):
-        return integrations.save(body)
+    def save_integration(body: CheveretoConnection, user: Admin):
+        return integrations_for(user).save(body)
 
     @app.post("/api/admin/integrations/chevereto/confirm-legacy", response_model=IntegrationStatus)
-    def confirm_legacy(body: IntegrationRevision, owner: Owner):
-        return integrations.confirm_legacy(body.revision)
+    def confirm_legacy(body: IntegrationRevision, user: Admin):
+        return integrations_for(user).confirm_legacy(body.revision)
 
     async def validate_import_fields(request: Request):
         form = await request.form()
@@ -160,49 +170,15 @@ def create_app(
         if set(form) - allowed:
             raise WorkflowError("Unknown import field; ownership comes from authentication")
 
-    @app.post("/api/session", response_model=SessionInfo)
-    def login(body: Login, response: Response) -> dict:
-        if not hmac.compare_digest(body.username.encode(), settings.username.encode()) or not hmac.compare_digest(
-            body.password.encode(), settings.password.encode()
-        ):
-            raise HTTPException(401, "Invalid username or password")
-        payload = f"{settings.owner_id}.{int(time.time()) + 12 * 3600}"
-        response.set_cookie(
-            "startnummer_session",
-            payload + "." + signature(payload),
-            httponly=True,
-            secure=settings.cookie_secure,
-            samesite="strict",
-            max_age=12 * 3600,
-        )
-        return {
-            "username": settings.username,
-            "gallery_url": settings.chevereto_url if gallery else integrations.public_url(),
-        }
-
-    @app.get("/api/session", response_model=SessionInfo)
-    def session_info(owner: Owner) -> dict:
-        return {
-            "username": settings.username,
-            "gallery_url": settings.chevereto_url if gallery else integrations.public_url(),
-        }
-
-    @app.delete("/api/session")
-    def logout(owner: Owner, response: Response) -> dict:
-        # Clear the owner's face sessions before ending the login session.
-        for batch in store.list_batches(owner):
-            service.cancel_analysis(owner, batch["id"])
-        response.delete_cookie("startnummer_session")
-        return {"signed_out": True}
-
     @app.get("/api/batches", response_model=list[BatchSummary])
-    def list_batches(owner: Owner) -> list[dict]:
+    def list_batches(owner: Owner, service: Service) -> list[dict]:
         store.cleanup(owner, lambda key: run(blobs.delete(owner, key)))
         return store.list_batches(owner)
 
     @app.post("/api/batches", response_model=Batch, dependencies=[Depends(validate_import_fields)])
     def import_batch(
         owner: Owner,
+        service: Service,
         import_id: Annotated[UUID | None, Form()] = None,
         name: Annotated[str, Form()] = "",
         meet_name: Annotated[str, Form()] = "",
@@ -211,7 +187,7 @@ def create_app(
         roster_file: Annotated[UploadFile | None, File()] = None,
         photos: Annotated[list[UploadFile] | None, File()] = None,
     ):
-        limits = effective_settings(store, settings)
+        limits = effective_settings(store, service.settings)
         inputs = []
         total = 0
         for photo in photos or []:
@@ -223,10 +199,12 @@ def create_app(
         html = roster_file.file.read(10 * 1024 * 1024 + 1) if roster_file else None
         if html and len(html) > 10 * 1024 * 1024:
             raise WorkflowError("Roster exceeds the size limit")
+        if gallery_url and service.gallery is None:
+            raise HTTPException(403, "Gallery access requires an administrator")
         return service.import_batch(owner, name, meet_name, inputs, gallery_url, html, roster_url, import_id)
 
     @app.get("/api/batches/{batch_id}", response_model=BatchView)
-    def get_batch(batch_id: UUID, owner: Owner):
+    def get_batch(batch_id: UUID, owner: Owner, service: Service):
         with store.transaction(owner) as db:
             batch = store.load(db, owner, batch_id)
             publications = store.publications(db, owner, batch_id)
@@ -234,21 +212,21 @@ def create_app(
             return BatchView(batch=batch, publications=publications, jobs=jobs)
 
     @app.delete("/api/batches/{batch_id}")
-    def delete_batch(batch_id: UUID, owner: Owner) -> dict:
+    def delete_batch(batch_id: UUID, owner: Owner, service: Service) -> dict:
         service.delete_batch(owner, batch_id)
         return {"deleted": True}
 
     @app.post("/api/batches/{batch_id}/analysis", response_model=Job)
-    def analyze(batch_id: UUID, owner: Owner):
+    def analyze(batch_id: UUID, owner: Owner, service: Service):
         return service.analyze(owner, batch_id)
 
     @app.post("/api/batches/{batch_id}/analysis/cancel")
-    def cancel_analysis(batch_id: UUID, owner: Owner) -> dict:
+    def cancel_analysis(batch_id: UUID, owner: Owner, service: Service) -> dict:
         service.cancel_analysis(owner, batch_id)
         return {"cancelled": True}
 
     @app.get("/api/batches/{batch_id}/faces", response_model=FaceView)
-    def get_faces(batch_id: UUID, owner: Owner):
+    def get_faces(batch_id: UUID, owner: Owner, service: Service):
         with store.transaction(owner) as db:
             store.load(db, owner, batch_id, lock=True)
             try:
@@ -260,73 +238,91 @@ def create_app(
             return {**data, "propagation_available": problem is None, "propagation_unavailable_reason": problem}
 
     @app.post("/api/batches/{batch_id}/face-propagation/preview", response_model=PropagationPreview)
-    def preview_propagation(batch_id: UUID, body: PropagationRequest, owner: Owner):
+    def preview_propagation(batch_id: UUID, body: PropagationRequest, owner: Owner, service: Service):
         return service.preview_propagation(owner, batch_id, body)
 
     @app.post("/api/batches/{batch_id}/face-propagation", response_model=list[Photo])
-    def propagate(batch_id: UUID, body: PropagationApply, owner: Owner):
+    def propagate(batch_id: UUID, body: PropagationApply, owner: Owner, service: Service):
         return service.propagate(owner, batch_id, body)
 
     @app.post("/api/batches/{batch_id}/face-propagation/undo", response_model=list[Photo])
-    def undo_propagation(batch_id: UUID, body: PropagationUndo, owner: Owner):
+    def undo_propagation(batch_id: UUID, body: PropagationUndo, owner: Owner, service: Service):
         return service.undo_propagation(owner, batch_id, body)
 
     @app.patch("/api/batches/{batch_id}/photos/{photo_id}", response_model=Photo)
-    def edit_photo(batch_id: UUID, photo_id: UUID, body: Edit, owner: Owner):
+    def edit_photo(batch_id: UUID, photo_id: UUID, body: Edit, owner: Owner, service: Service):
         return service.edit(owner, batch_id, photo_id, body)
 
     @app.post("/api/batches/{batch_id}/photos/{photo_id}/subjects", response_model=Photo)
-    def add_person(batch_id: UUID, photo_id: UUID, body: AddPerson, owner: Owner):
+    def add_person(batch_id: UUID, photo_id: UUID, body: AddPerson, owner: Owner, service: Service):
         return service.add_person(owner, batch_id, photo_id, body)
 
     @app.delete("/api/batches/{batch_id}/photos/{photo_id}/subjects/{subject_index}", response_model=Photo)
-    def remove_person(batch_id: UUID, photo_id: UUID, subject_index: int, body: Revision, owner: Owner):
+    def remove_person(
+        batch_id: UUID, photo_id: UUID, subject_index: int, body: Revision, owner: Owner, service: Service
+    ):
         return service.remove_person(owner, batch_id, photo_id, subject_index, body.revision)
 
     @app.post("/api/batches/{batch_id}/discipline-preview", response_model=DisciplinePreview)
-    def preview_discipline(batch_id: UUID, body: DisciplineAssignment, owner: Owner):
+    def preview_discipline(batch_id: UUID, body: DisciplineAssignment, owner: Owner, service: Service):
         return service.preview_discipline(owner, batch_id, body)
 
     @app.post("/api/batches/{batch_id}/discipline", response_model=list[Photo])
-    def assign_discipline(batch_id: UUID, body: DisciplineAssignment, owner: Owner):
+    def assign_discipline(batch_id: UUID, body: DisciplineAssignment, owner: Owner, service: Service):
         return service.assign_discipline(owner, batch_id, body)
 
     @app.post("/api/batches/{batch_id}/approve")
-    def approve(batch_id: UUID, body: Selected, owner: Owner) -> dict:
+    def approve(batch_id: UUID, body: Selected, owner: Owner, service: Service) -> dict:
         service.approve(owner, batch_id, body.photos)
         return {"approved": len(body.photos)}
 
     @app.post("/api/batches/{batch_id}/photos/{photo_id}/unapprove", response_model=Photo)
-    def unapprove(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner):
+    def unapprove(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner, service: Service):
         return service.unapprove(owner, batch_id, photo_id, body.revision)
 
     @app.post("/api/batches/{batch_id}/finish")
-    def finish(batch_id: UUID, owner: Owner) -> dict:
+    def finish(batch_id: UUID, owner: Owner, service: Service) -> dict:
         service.finish(owner, batch_id)
         return {"saved": True, "face_session_finished": True}
 
-    @app.get("/api/batches/{batch_id}/apply-preview", response_model=list[ChangePreview])
-    def preview(batch_id: UUID, owner: Owner):
+    @app.get(
+        "/api/batches/{batch_id}/apply-preview",
+        dependencies=[Depends(administrator)],
+        response_model=list[ChangePreview],
+    )
+    def preview(batch_id: UUID, owner: Owner, service: Service):
         return service.preview(owner, batch_id)
 
-    @app.post("/api/batches/{batch_id}/apply", response_model=list[Publication])
-    def apply(batch_id: UUID, body: Selected, owner: Owner):
+    @app.post("/api/batches/{batch_id}/apply", dependencies=[Depends(administrator)], response_model=list[Publication])
+    def apply(batch_id: UUID, body: Selected, owner: Owner, service: Service):
         return service.apply(owner, batch_id, body.photos)
 
-    @app.post("/api/batches/{batch_id}/publications/{operation_id}/restore", response_model=WriteResult)
-    def restore(batch_id: UUID, operation_id: UUID, owner: Owner):
+    @app.post(
+        "/api/batches/{batch_id}/publications/{operation_id}/restore",
+        dependencies=[Depends(administrator)],
+        response_model=WriteResult,
+    )
+    def restore(batch_id: UUID, operation_id: UUID, owner: Owner, service: Service):
         return service.restore(owner, batch_id, operation_id)
 
-    @app.post("/api/batches/{batch_id}/publications/{operation_id}/reconcile", response_model=Publication)
-    def reconcile(batch_id: UUID, operation_id: UUID, owner: Owner):
+    @app.post(
+        "/api/batches/{batch_id}/publications/{operation_id}/reconcile",
+        dependencies=[Depends(administrator)],
+        response_model=Publication,
+    )
+    def reconcile(batch_id: UUID, operation_id: UUID, owner: Owner, service: Service):
         return service.reconcile(owner, batch_id, operation_id)
 
-    @app.post("/api/batches/{batch_id}/photos/{photo_id}/refresh-description", response_model=Photo)
-    def refresh_description(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner):
+    @app.post(
+        "/api/batches/{batch_id}/photos/{photo_id}/refresh-description",
+        dependencies=[Depends(administrator)],
+        response_model=Photo,
+    )
+    def refresh_description(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner, service: Service):
         return service.refresh_description(owner, batch_id, photo_id, body.revision)
 
     @app.get("/api/photos/{photo_id}")
-    def photo_bytes(photo_id: UUID, owner: Owner):
+    def photo_bytes(photo_id: UUID, owner: Owner, service: Service):
         photo = store.photo(owner, photo_id)
         try:
             data = run(blobs.read(owner, photo.blob_key))
@@ -335,7 +331,7 @@ def create_app(
         return Response(data, media_type=photo.mime_type)
 
     @app.get("/api/disciplines", response_model=list[DisciplineOption])
-    def disciplines(owner: Owner) -> list[dict]:
+    def disciplines(owner: Owner, service: Service) -> list[dict]:
         return [{"value": d.value, "de": d.de, "en": d.en} for d in AthleticsDiscipline]
 
     frontend = Path(__file__).resolve().parents[2] / "startnummer-web" / "dist"

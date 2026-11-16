@@ -6,6 +6,7 @@ import { getBatch } from '../features/review/api';
 import { useAction } from '../hooks/useAction';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import Login from './Login';
+import AccountSettings from '../features/accounts/AccountSettings';
 import ImportBatch from './ImportBatch';
 import SavedAlbums from './SavedAlbums';
 import AppShell from './AppShell';
@@ -16,6 +17,9 @@ import type { ReviewInput, ReviewStatus } from '../features/review/BatchReview';
 
 export default function Workspace() {
   const [session, setSession] = useState<Schema['SessionInfo'] | null>(null);
+  const [authStatus, setAuthStatus] = useState<Schema['AuthStatus'] | null>(null);
+  const authGeneration = useRef(0);
+  const authenticated = useRef(false);
   const [checking, setChecking] = useState(true);
   const [screen, setScreen] = useState<Screen>('albums');
   const [albums, setAlbums] = useState<Schema['BatchSummary'][]>([]);
@@ -27,11 +31,32 @@ export default function Workspace() {
   const changes = useUnsavedChanges();
 
   async function listAlbums() {
-    setAlbums(await workspaceApi.listAlbums());
+    const generation = authGeneration.current;
+    const result = await workspaceApi.listAlbums();
+    if (generation === authGeneration.current) setAlbums(result);
+  }
+  function clearSession() {
+    authenticated.current = false;
+    ++authGeneration.current;
+    changes.setDirty(false);
+    setSession(null);
+    setReview(null);
+    setAlbums([]);
+    setDisciplines([]);
+    setReviewStatus({ name: '', running: false });
+    setScreen('albums');
+    window.location.hash = '';
+  }
+  async function loadDisciplines() {
+    const generation = authGeneration.current;
+    const result = await workspaceApi.listDisciplines();
+    if (generation === authGeneration.current) setDisciplines(result);
   }
   async function openBatch(id: string) {
     if (!changes.confirmLeave('Leave this photo without saving its changes?')) return;
+    const auth = authGeneration.current;
     const view = await getBatch(id);
+    if (auth !== authGeneration.current) return;
     changes.setDirty(false);
     setReview({ view, generation: ++generation.current });
     setReviewStatus({
@@ -43,11 +68,13 @@ export default function Workspace() {
   }
   async function initialize() {
     try {
+      setAuthStatus(await workspaceApi.authStatus());
       const session = await workspaceApi.currentSession();
       if (!session) return;
+      authenticated.current = true;
       setSession(session);
       await listAlbums();
-      setDisciplines(await workspaceApi.listDisciplines());
+      await loadDisciplines();
       const id = window.location.hash.match(/^#batch\/([a-f0-9-]+)$/)?.[1];
       if (id) await openBatch(id);
     } catch (failure) {
@@ -58,7 +85,26 @@ export default function Workspace() {
   }
   useEffect(() => {
     void initialize();
+    const expired = () => {
+      if (!authenticated.current) return;
+      clearSession();
+      setError('Your session ended. Sign in again.');
+    };
+    window.addEventListener('startnummer:session-expired', expired);
+    return () => window.removeEventListener('startnummer:session-expired', expired);
   }, []);
+  useEffect(() => {
+    if (!session) return;
+    const check = () => {
+      void workspaceApi.currentSession().catch(() => {});
+    };
+    const timer = window.setInterval(check, 30000);
+    window.addEventListener('focus', check);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', check);
+    };
+  }, [Boolean(session)]);
   if (checking)
     return (
       <main className="login">
@@ -67,18 +113,36 @@ export default function Workspace() {
       </main>
     );
   if (!session)
-    return (
+    return authStatus ? (
       <Login
-        onLogin={async (username, password) => {
+        status={authStatus}
+        onSubmit={async (mode, credentials) => {
           await action(async () => {
-            setSession(await workspaceApi.signIn(username, password));
+            const result =
+              mode === 'login'
+                ? await workspaceApi.signIn(credentials.username, credentials.password)
+                : mode === 'setup'
+                  ? await workspaceApi.setup({ ...credentials, code: credentials.code ?? '' })
+                  : await workspaceApi.register(credentials);
+            ++authGeneration.current;
+            authenticated.current = true;
+            setSession(result);
+            window.location.hash = '';
+            setScreen('albums');
             await listAlbums();
-            setDisciplines(await workspaceApi.listDisciplines());
+            await loadDisciplines();
+            setAuthStatus(await workspaceApi.authStatus());
           });
         }}
         error={error}
         busy={busy}
       />
+    ) : (
+      <main className="login">
+        <h1>Startnummer</h1>
+        <p role="alert">{error || 'Could not load account settings.'}</p>
+        <button onClick={() => void initialize()}>Try again</button>
+      </main>
     );
 
   const messages = (
@@ -125,6 +189,14 @@ export default function Workspace() {
         setScreen('new');
         setError('');
       }}
+      onAccount={() => {
+        if (!changes.confirmLeave('Leave without saving changes?')) return;
+        changes.setDirty(false);
+        setScreen('account');
+        setError('');
+        setNotice('');
+        window.location.hash = '';
+      }}
       onAdmin={() => {
         if (!changes.confirmLeave('Leave without saving caption changes?')) return;
         changes.setDirty(false);
@@ -145,9 +217,7 @@ export default function Workspace() {
             return;
           await workspaceApi.signOut();
           changes.setDirty(false);
-          setSession(null);
-          setReview(null);
-          setReviewStatus({ name: '', running: false });
+          clearSession();
         })
       }
     >
@@ -162,7 +232,18 @@ export default function Workspace() {
             />
           )}
 
-          {screen === 'admin' && (
+          {screen === 'account' && (
+            <AccountSettings
+              onDirty={changes.setDirty}
+              onSignedOut={clearSession}
+              onSessionsCleared={() => {
+                ++authGeneration.current;
+                setReview(null);
+                setReviewStatus({ name: '', running: false });
+              }}
+            />
+          )}
+          {screen === 'admin' && session.is_admin && (
             <Administration
               onIntegrationChange={() =>
                 void action(async () => {
@@ -177,6 +258,7 @@ export default function Workspace() {
           {screen === 'new' && (
             <ImportBatch
               busy={busy}
+              canUseGallery={Boolean(session.is_admin)}
               gallery={session.gallery_url ?? ''}
               onImport={(form) =>
                 action(async () => {
@@ -196,6 +278,7 @@ export default function Workspace() {
         <BatchReview
           key={review.generation}
           initial={review}
+          canPublish={Boolean(session.is_admin)}
           messages={messages}
           active={screen === 'review'}
           disciplines={disciplines}

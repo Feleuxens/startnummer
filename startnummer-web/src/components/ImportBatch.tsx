@@ -4,12 +4,14 @@ export default function ImportBatch({
   onImport,
   busy,
   gallery,
+  canUseGallery,
 }: {
   onImport: (data: FormData) => Promise<void>;
   busy: boolean;
   gallery: string;
+  canUseGallery: boolean;
 }) {
-  const [photoSource, setPhotoSource] = useState('gallery');
+  const [photoSource, setPhotoSource] = useState(canUseGallery ? 'gallery' : 'files');
   const [rosterSource, setRosterSource] = useState('file');
   const [uploadNames, setUploadNames] = useState<string[]>([]);
   const importId = useRef(crypto.randomUUID());
@@ -32,24 +34,26 @@ export default function ImportBatch({
       >
         <section>
           <h2>Photos</h2>
-          <div className="source-choices">
-            <label>
-              <input
-                type="radio"
-                checked={photoSource === 'gallery'}
-                onChange={() => setPhotoSource('gallery')}
-              />{' '}
-              Chevereto album
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={photoSource === 'files'}
-                onChange={() => setPhotoSource('files')}
-              />{' '}
-              Upload images
-            </label>
-          </div>
+          {canUseGallery && (
+            <div className="source-choices">
+              <label>
+                <input
+                  type="radio"
+                  checked={photoSource === 'gallery'}
+                  onChange={() => setPhotoSource('gallery')}
+                />{' '}
+                Chevereto album
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={photoSource === 'files'}
+                  onChange={() => setPhotoSource('files')}
+                />{' '}
+                Upload images
+              </label>
+            </div>
+          )}
           {photoSource === 'gallery' ? (
             <label>
               Album URL

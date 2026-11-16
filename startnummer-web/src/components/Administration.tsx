@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SubmitEvent } from 'react';
 import type { components } from '../api/schema';
 import { api, message, unwrap } from '../api/client';
+import UserManagement from '../features/accounts/UserManagement';
 import CheveretoIntegration from '../features/integrations/CheveretoIntegration';
 
 type Schema = components['schemas'];
@@ -28,6 +29,7 @@ export default function Administration({
   const [busy, setBusy] = useState(false);
   const dirty = useRef(false);
   const integrationDirty = useRef(false);
+  const accountsDirty = useRef(false);
   const alive = useRef(true);
   async function refresh() {
     try {
@@ -68,7 +70,7 @@ export default function Administration({
       );
       if (!alive.current) return;
       dirty.current = false;
-      onDirty(integrationDirty.current);
+      onDirty(integrationDirty.current || accountsDirty.current);
       setForm(editable(saved));
       setNotice(
         'Settings saved. Import limits apply to new imports; the lifetime applies to new face sessions.',
@@ -136,12 +138,18 @@ export default function Administration({
               <p className="muted">The worker is unavailable. Saved captions remain editable.</p>
             )}
           </section>
+          <UserManagement
+            onDirty={(value) => {
+              accountsDirty.current = value;
+              onDirty(dirty.current || integrationDirty.current || value);
+            }}
+          />
           <section aria-labelledby="integrations-title">
             <h2 id="integrations-title">Configured integrations</h2>
             <CheveretoIntegration
               onDirty={(value) => {
                 integrationDirty.current = value;
-                onDirty(dirty.current || value);
+                onDirty(dirty.current || accountsDirty.current || value);
               }}
               onChanged={onIntegrationChange}
             />
@@ -218,7 +226,7 @@ export default function Administration({
                     )
                       return;
                     dirty.current = false;
-                    onDirty(integrationDirty.current);
+                    onDirty(integrationDirty.current || accountsDirty.current);
                     setError('');
                     void refresh();
                   }}

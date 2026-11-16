@@ -13,18 +13,20 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.exc import ArgumentError
 
 from startnummer.adapters.db.store import Store
 from startnummer.app.backup import backup, inspect_backup, restore
 from startnummer.app.operations import database_healthy, worker_health
 from startnummer.app.processes import process_identity
-from startnummer.app.settings import Settings
+from startnummer.app.settings import Settings, required_setting
 from startnummer.core.batch import WorkflowError, now
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -144,7 +146,14 @@ def supervise(args, settings, *, commands=None):
         worker_environment = {
             key: value
             for key, value in environment.items()
-            if key not in {"STARTNUMMER_CHEVERETO_DSN", "STARTNUMMER_INTEGRATION_KEY"}
+            if key
+            not in {
+                "STARTNUMMER_CHEVERETO_DSN",
+                "STARTNUMMER_CHEVERETO_URL",
+                "STARTNUMMER_INTEGRATION_KEY",
+                "STARTNUMMER_PASSWORD",
+                "STARTNUMMER_SESSION_SECRET",
+            }
         }
         worker_environment["STARTNUMMER_INFERENCE_BACKEND"] = args.backend or os.environ.get(
             "STARTNUMMER_INFERENCE_BACKEND", "auto"
@@ -262,8 +271,10 @@ def parser():
     check.add_argument("--port", type=int, default=8000, help="API port for services started without the launcher")
     sub.add_parser("stop")
     sub.add_parser("migrate")
+    sub.add_parser("setup-code", help="Print the local one-time administrator setup code")
     create = sub.add_parser("backup")
     create.add_argument("destination", type=Path)
+    create.add_argument("--username", help="Account to back up; defaults to the administrator")
     verify = sub.add_parser("verify-backup")
     verify.add_argument("source", type=Path)
     recover = sub.add_parser("restore")
@@ -280,8 +291,30 @@ def main(argv=None):
         if args.command == "verify-backup":
             print(json.dumps(inspect_backup(args.source), indent=2))
             return
+        if args.command == "migrate":
+            url = required_setting("STARTNUMMER_DATABASE_URL")
+            try:
+                engine = create_engine(url)
+            except (ValueError, ArgumentError):
+                raise WorkflowError(
+                    "STARTNUMMER_DATABASE_URL is invalid; check the driver, URL encoding, and port"
+                ) from None
+            try:
+                migrate(engine)
+            finally:
+                engine.dispose()
+            print("Migrations applied.")
+            return
         settings = Settings.from_env()
-        if args.command == "start":
+        if args.command == "setup-code":
+            from startnummer.app.auth import Authentication
+
+            engine = create_engine(settings.database_url)
+            try:
+                print(Authentication(engine, settings).setup_code())
+            finally:
+                engine.dispose()
+        elif args.command == "start":
             if args.worker_port is None:
                 args.worker_port = int(os.environ.get("STARTNUMMER_WORKER_PORT", "8766"))
             if args.cache_mb < 0:
@@ -295,16 +328,40 @@ def main(argv=None):
             if report["api"] != "ready" or report["worker"] not in {"idle", "busy"}:
                 raise SystemExit(1)
         elif args.command == "restore":
-            settings = replace(settings, database_url=args.database_url, blob_root=args.blob_root)
+            summary = inspect_backup(args.source)
+            settings = replace(
+                settings,
+                database_url=args.database_url,
+                blob_root=args.blob_root,
+                owner_id=UUID(summary["owner_id"]),
+                username=summary.get("username", settings.username),
+            )
             engine = create_engine(settings.database_url)
             if engine.dialect.name not in {"postgresql", "sqlite"}:
                 raise WorkflowError("Restore supports only a dedicated PostgreSQL or SQLite database")
             print(json.dumps(restore(engine, settings, args.source, migrate=migrate), indent=2))
-        elif args.command == "migrate":
-            migrate(create_engine(settings.database_url))
-            print("Migrations applied.")
         elif args.command == "backup":
-            print(json.dumps(backup(Store(create_engine(settings.database_url)), settings, args.destination), indent=2))
+            from sqlalchemy import select
+            from sqlalchemy.orm import Session
+
+            from startnummer.adapters.db.accounts import username_key
+            from startnummer.adapters.db.schema import UserRow
+
+            engine = create_engine(settings.database_url)
+            try:
+                with Session(engine) as db:
+                    query = (
+                        select(UserRow).where(UserRow.username_key == username_key(args.username))
+                        if args.username
+                        else select(UserRow).where(UserRow.is_admin.is_(True))
+                    )
+                    user = db.scalar(query)
+                    if user is None:
+                        raise WorkflowError("Account not found; complete setup or choose --username")
+                    settings = replace(settings, owner_id=user.id, username=user.username)
+                print(json.dumps(backup(Store(engine), settings, args.destination), indent=2))
+            finally:
+                engine.dispose()
     except WorkflowError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from None

@@ -19,3 +19,9 @@ export const importBatch = async (form: FormData) =>
       bodySerializer: (body) => body as unknown as FormData,
     }),
   );
+
+export const authStatus = async () => unwrap(await api.GET('/api/auth/status'));
+export const register = async (body: { username: string; password: string; invitation?: string }) =>
+  unwrap(await api.POST('/api/auth/register', { body }));
+export const setup = async (body: { username: string; password: string; code: string }) =>
+  unwrap(await api.POST('/api/auth/setup', { body }));

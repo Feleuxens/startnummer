@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev --host 127.0.0.1",
-    "generate": "../.venv/bin/python ../scripts/export_openapi.py && openapi-typescript openapi.json -o src/api/schema.d.ts",
+    "generate": "uv run --no-sync python ../scripts/export_openapi.py && openapi-typescript openapi.json -o src/api/schema.d.ts",
     "check": "npm run generate && astro check",
     "build": "npm run check && astro build",
     "test": "npm run build && playwright test",

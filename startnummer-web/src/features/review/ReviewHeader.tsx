@@ -6,6 +6,7 @@ import { approved } from './model';
 
 export default function ReviewHeader({
   view,
+  canPublish,
   busy,
   running,
   changes,
@@ -15,6 +16,7 @@ export default function ReviewHeader({
   onPreview,
 }: {
   view: BatchView;
+  canPublish: boolean;
   busy: boolean;
   running: boolean;
   changes: UnsavedChanges;
@@ -76,13 +78,15 @@ export default function ReviewHeader({
           >
             Save review and finish face session
           </button>
-          <button
-            className="primary"
-            disabled={busy || running || !approvedCount}
-            onClick={onPreview}
-          >
-            Preview Apply
-          </button>
+          {canPublish && (
+            <button
+              className="primary"
+              disabled={busy || running || !approvedCount}
+              onClick={onPreview}
+            >
+              Preview Apply
+            </button>
+          )}
         </div>
       </div>
 

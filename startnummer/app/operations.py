@@ -14,12 +14,12 @@ from startnummer.app.contracts import Administration, RuntimeSettings, WorkerHea
 
 
 def effective_settings(store, settings):
-    _, document = store.runtime_settings(settings.owner_id)
+    _, document = store.installation_settings(settings.owner_id)
     return replace(settings, **document)
 
 
 def runtime_settings(store, settings, *, owner_id=None, session=None):
-    revision, document = store.runtime_settings(owner_id or settings.owner_id, session=session)
+    revision, document = store.installation_settings(owner_id or settings.owner_id, session=session)
     return RuntimeSettings(
         revision=revision,
         **{
@@ -79,13 +79,7 @@ def administration(store, settings):
     if database:
         try:
             with store.transaction() as session:
-                jobs = dict(
-                    session.execute(
-                        select(JobRow.state, func.count())
-                        .where(JobRow.owner_id == settings.owner_id)
-                        .group_by(JobRow.state)
-                    ).all()
-                )
+                jobs = dict(session.execute(select(JobRow.state, func.count()).group_by(JobRow.state)).all())
                 options = runtime_settings(store, settings, session=session)
         except SQLAlchemyError:
             database = False

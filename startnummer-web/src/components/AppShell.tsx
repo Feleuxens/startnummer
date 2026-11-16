@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Schema } from '../api/types';
 
-export type Screen = 'albums' | 'new' | 'review' | 'admin';
+export type Screen = 'albums' | 'new' | 'review' | 'admin' | 'account';
 
 export default function AppShell({
   session,
@@ -13,6 +13,7 @@ export default function AppShell({
   onAlbums,
   onNew,
   onAdmin,
+  onAccount,
   onSignOut,
   children,
 }: {
@@ -25,6 +26,7 @@ export default function AppShell({
   onAlbums: () => void;
   onNew: () => void;
   onAdmin: () => void;
+  onAccount: () => void;
   onSignOut: () => void;
   children: ReactNode;
 }) {
@@ -55,6 +57,9 @@ export default function AppShell({
         </nav>
         <div className="sidebar-footer">
           <nav aria-label="Account">
+            <button className={screen === 'account' ? 'active' : ''} onClick={onAccount}>
+              Account
+            </button>
             {session.is_admin && (
               <button className={screen === 'admin' ? 'active' : ''} onClick={onAdmin}>
                 Administration
@@ -73,9 +78,11 @@ export default function AppShell({
               ? albumName
               : screen === 'new'
                 ? 'New batch'
-                : screen === 'admin'
-                  ? 'Administration'
-                  : 'Your photo workspace'}
+                : screen === 'account'
+                  ? 'Account'
+                  : screen === 'admin'
+                    ? 'Administration'
+                    : 'Your photo workspace'}
           </span>
         </header>
         {children}

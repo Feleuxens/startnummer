@@ -6,6 +6,7 @@ const html = `<html><div class="entryline"><div></div><div>12</div><div></div><d
 
 async function login(page: Page) {
   await page.goto('/');
+  await page.getByLabel('Username', { exact: true }).fill('photographer');
   await page.getByLabel('Password', { exact: true }).fill('browser-test-only');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();

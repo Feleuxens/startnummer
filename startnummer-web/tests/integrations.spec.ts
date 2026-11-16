@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('configure, test, save, reload, and use an encrypted gallery connection', async ({ page }) => {
   await page.goto('/');
+  await page.getByLabel('Username', { exact: true }).fill('photographer');
   await page.getByLabel('Password', { exact: true }).fill('browser-test-only');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.getByRole('button', { name: 'Administration', exact: true }).click();

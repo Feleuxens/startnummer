@@ -22,7 +22,60 @@ class Login(Input):
 class SessionInfo(BaseModel):
     username: str
     gallery_url: str | None = None
-    is_admin: bool = True
+    is_admin: bool = False
+
+
+class AuthStatus(BaseModel):
+    setup_required: bool
+    registration_enabled: bool
+
+
+class Registration(Input):
+    username: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
+    password: SecretStr = Field(min_length=12, max_length=1024)
+    invitation: SecretStr | None = Field(default=None, max_length=128)
+
+
+class Setup(Registration):
+    code: SecretStr = Field(min_length=1, max_length=256)
+
+
+class PasswordChange(Input):
+    current_password: SecretStr = Field(min_length=1, max_length=1024)
+    password: SecretStr = Field(min_length=12, max_length=1024)
+
+
+class RegistrationPolicy(Input):
+    revision: int = Field(ge=0)
+    registration_enabled: bool
+
+
+class UserInfo(BaseModel):
+    id: UUID
+    username: str
+    is_admin: bool
+    created_at: datetime
+
+
+class InvitationInfo(BaseModel):
+    id: UUID
+    label: str
+    expires_at: datetime
+    state: Literal["available", "expired", "used", "revoked"]
+
+
+class InvitationCreated(InvitationInfo):
+    token: str
+
+
+class InvitationRequest(Input):
+    label: str = Field(default="", max_length=120)
+    hours: int = Field(default=48, ge=1, le=168)
+
+
+class AccountAdministration(RegistrationPolicy):
+    users: list[UserInfo]
+    invitations: list[InvitationInfo]
 
 
 class CheveretoConnection(Input):

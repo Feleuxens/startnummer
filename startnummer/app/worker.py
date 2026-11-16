@@ -133,7 +133,7 @@ class Worker:
         if lost.is_set() or self.stopped.is_set():
             raise Conflict("Worker lease was lost")
 
-        _, options = self.store.runtime_settings(job.owner_id)
+        _, options = self.store.installation_settings(job.owner_id)
 
         def merge(current):
             retained = Services.merge_analysis(current, results)

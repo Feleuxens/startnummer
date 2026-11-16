@@ -13,13 +13,15 @@ from zipfile import ZIP_STORED, BadZipFile, ZipFile
 from sqlalchemy import DateTime, Uuid, func, inspect, select
 
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
-from startnummer.adapters.db.schema import Base
+from startnummer.adapters.db.accounts import AUTH_TABLES, username_key
+from startnummer.adapters.db.schema import Base, InstanceRow, UserRow
 from startnummer.adapters.db.store import Store
 from startnummer.core.batch import Conflict, WorkflowError, now
 
 CHUNK = 1024 * 1024
-FORMAT = 2
-BACKUP_TABLES = tuple(table for table in Base.metadata.sorted_tables if table.name != "sn_integrations")
+FORMAT = 3
+DATA_TABLES = tuple(table for table in Base.metadata.sorted_tables if table.name not in AUTH_TABLES)
+BACKUP_TABLES = tuple(table for table in DATA_TABLES if table.name != "sn_integrations")
 
 
 def reject_face_data(value):
@@ -103,7 +105,9 @@ def backup(store, settings, destination: Path):
                     if size != photo["document"]["size"] or "sha256:" + digest.hexdigest() != photo["content_hash"]:
                         raise WorkflowError("A stored photo failed integrity verification; no backup was created")
                     files[name] = {"size": size, "sha256": digest.hexdigest()}
+                user = session.get(UserRow, settings.owner_id)
                 manifest = {
+                    "username": user.username if user else settings.username,
                     "format": FORMAT,
                     "created_at": now().isoformat(),
                     "owner_id": str(settings.owner_id),
@@ -134,9 +138,13 @@ def validate_archive(archive):
     if len(names) != len(set(names)) or archive.getinfo("manifest.json").file_size > 16 * CHUNK:
         raise WorkflowError("Invalid backup manifest")
     manifest = json.loads(archive.read("manifest.json"))
-    if manifest["format"] not in {1, FORMAT}:
+    if manifest["format"] not in {1, 2, FORMAT}:
         raise WorkflowError("Unsupported backup format")
     owner = UUID(manifest["owner_id"])
+    if manifest["format"] == FORMAT:
+        username = manifest.get("username")
+        if not isinstance(username, str) or not username or len(username) > 128:
+            raise WorkflowError("Backup account name is missing or invalid")
     files = manifest["files"]
     if set(names) != {"manifest.json", *files} or "database.json" not in files:
         raise WorkflowError("Backup entries do not match the manifest")
@@ -192,6 +200,10 @@ def require_empty(engine, blob_root):
         raise Conflict("Restore requires a dedicated, empty Startnummer database")
     with engine.connect() as connection:
         for table in Base.metadata.sorted_tables:
+            if table.name == "sn_instance":
+                if table.name in known and connection.scalar(select(InstanceRow.admin_owner_id)):
+                    raise Conflict("Restore will not overwrite an initialized installation")
+                continue
             if table.name in known and connection.scalar(select(func.count()).select_from(table)):
                 raise Conflict("Restore will not overwrite existing database records")
     if blob_root.exists() and (not blob_root.is_dir() or any(blob_root.iterdir())):
@@ -226,7 +238,19 @@ def restore(engine, settings, source: Path, *, migrate):
                 migrate(engine)
                 with Store(engine).transaction(settings.owner_id) as session:
                     require_empty(engine, root)
-                    for table in Base.metadata.sorted_tables:
+                    if summary.get("username"):
+                        session.add(
+                            UserRow(
+                                id=settings.owner_id,
+                                username=summary["username"],
+                                username_key=username_key(summary["username"]),
+                                password_hash=None,
+                                is_admin=False,
+                                created_at=now(),
+                            )
+                        )
+                        session.flush()
+                    for table in DATA_TABLES:
                         rows = []
                         for original in tables[table.name]:
                             row = dict(original)

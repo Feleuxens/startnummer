@@ -26,8 +26,6 @@ def test_compose_import_review_restart_and_restore(tmp_path):
     configuration = tmp_path / "docker.env"
     configuration.write_text(
         "POSTGRES_PASSWORD=" + "a" * 32 + "\n"
-        "STARTNUMMER_USERNAME=synthetic-photographer\n"
-        "STARTNUMMER_PASSWORD=synthetic-login-password\n"
         "STARTNUMMER_SESSION_SECRET=" + "s" * 32 + "\n"
         "STARTNUMMER_WORKER_SECRET=" + "w" * 32 + "\n"
         "STARTNUMMER_INTEGRATION_KEY=" + base64.urlsafe_b64encode(b"k" * 32).decode() + "\n"
@@ -117,10 +115,13 @@ def test_compose_import_review_restart_and_restore(tmp_path):
         ) as client:
             assert client.get("/").status_code == 200
             assert client.get("/api/batches").status_code == 401
+            assert client.get("/api/auth/status").json()["setup_required"]
+            code = compose("run", "--rm", "ops", "setup-code").splitlines()[-1]
             login = client.post(
-                "/api/session", json={"username": "synthetic-photographer", "password": "synthetic-login-password"}
+                "/api/auth/setup",
+                json={"username": "synthetic-photographer", "password": "synthetic-login-password", "code": code},
             )
-            assert login.is_success
+            assert login.is_success, login.text
             assert client.get("/api/admin").json()["worker"]["reachable"]
             assert client.get("/api/admin/integrations/chevereto").json()["editable"]
             image = BytesIO()
@@ -143,6 +144,7 @@ def test_compose_import_review_restart_and_restore(tmp_path):
                 return response.json()["album"]["id"]
 
             first = import_album("First synthetic album")
+            owner = client.get(f"/api/batches/{first}").json()["batch"]["album"]["owner_id"]
             assert client.post(f"/api/batches/{first}/analysis").is_success
             photo = await_job(client, first)["photos"][0]
             assert photo["caption"]
@@ -191,6 +193,7 @@ def test_compose_import_review_restart_and_restore(tmp_path):
             "from startnummer.adapters.blob.filesystem import FilesystemBlobStore; "
             "from startnummer.app.services import run; "
             "s=Settings.from_env(); store=Store(create_engine(s.database_url)); "
+            f"s=__import__('dataclasses').replace(s,owner_id=__import__('uuid').UUID('{owner}')); "
             "assert len(store.list_batches(s.owner_id))==2; "
             f"photo=store.get(s.owner_id, __import__('uuid').UUID('{first}')).photos[0]; "
             "assert photo.caption=='Reviewed Docker caption'; "

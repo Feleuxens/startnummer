@@ -1,4 +1,4 @@
-"""Batch, photo, job, and publication tables."""
+"""Account, batch, job, integration, and publication tables."""
 
 from datetime import datetime
 from uuid import UUID
@@ -9,6 +9,44 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
+
+
+class UserRow(Base):
+    __tablename__ = "sn_users"
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64))
+    username_key: Mapped[str] = mapped_column(String(128), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class InstanceRow(Base):
+    __tablename__ = "sn_instance"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    admin_owner_id: Mapped[UUID | None] = mapped_column(ForeignKey("sn_users.id"))
+    registration_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SessionRow(Base):
+    __tablename__ = "sn_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("sn_users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class InvitationRow(Base):
+    __tablename__ = "sn_invitations"
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    label: Mapped[str] = mapped_column(String(120))
+    created_by: Mapped[UUID] = mapped_column(ForeignKey("sn_users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SettingsRow(Base):

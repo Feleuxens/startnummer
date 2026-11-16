@@ -192,6 +192,7 @@ small {
   line-height: 1;
 }
 .scope {
+  overflow-wrap: anywhere;
   padding: 10px 0 28px 32px;
   font-size: 12px;
 }
@@ -1153,5 +1154,61 @@ button.face-box.chosen {
   .propagation-list > li {
     grid-template-columns: 88px minmax(0, 1fr);
     gap: 12px;
+  }
+}
+
+.auth-switch {
+  margin-top: 20px;
+}
+.login code {
+  overflow-wrap: anywhere;
+}
+.user-management h3 {
+  margin: 28px 0 12px;
+}
+.user-management form > p {
+  margin: 12px 0;
+  max-width: 70ch;
+}
+.account-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.account-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.account-list li > div {
+  min-width: 0;
+}
+.account-list strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.account-list span {
+  color: var(--muted);
+}
+.account-list button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.invitation-link {
+  margin-top: 20px;
+}
+.invitation-link > button {
+  margin: 12px 0;
+}
+@media (max-width: 640px) {
+  .login {
+    margin: 24px auto;
+  }
+  .account-list li {
+    align-items: flex-start;
   }
 }

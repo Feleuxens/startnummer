@@ -1,16 +1,53 @@
-"""Initial Startnummer schema: batches, jobs, settings, and integrations."""
+"""Initial Startnummer schema, including accounts and registration policy."""
 
 import sqlalchemy as sa
 from alembic import op
 
-# Preserve the complete pre-release schema's revision for existing development databases.
-revision = "0003"
+revision = "1"
 down_revision = None
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
+    op.create_table(
+        "sn_users",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("username", sa.String(64), nullable=False),
+        sa.Column("username_key", sa.String(128), nullable=False, unique=True),
+        sa.Column("password_hash", sa.Text(), nullable=True),
+        sa.Column("is_admin", sa.Boolean(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_table(
+        "sn_instance",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("admin_owner_id", sa.Uuid(), sa.ForeignKey("sn_users.id")),
+        sa.Column("registration_enabled", sa.Boolean(), nullable=False),
+        sa.Column("revision", sa.Integer(), nullable=False),
+    )
+    op.create_table(
+        "sn_sessions",
+        sa.Column("token_hash", sa.String(64), primary_key=True),
+        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("sn_users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+    )
+    op.create_index("ix_sn_sessions_user_id", "sn_sessions", ["user_id"])
+    op.create_index("ix_sn_sessions_expires_at", "sn_sessions", ["expires_at"])
+    op.create_table(
+        "sn_invitations",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("token_hash", sa.String(64), nullable=False, unique=True),
+        sa.Column("label", sa.String(120), nullable=False),
+        sa.Column("created_by", sa.Uuid(), sa.ForeignKey("sn_users.id"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("used_at", sa.DateTime(timezone=True)),
+        sa.Column("revoked_at", sa.DateTime(timezone=True)),
+    )
+    op.execute(sa.text("INSERT INTO sn_instance (id, registration_enabled, revision) VALUES (1, false, 0)"))
+
     op.create_table(
         "sn_blob_garbage",
         sa.Column("owner_id", sa.Uuid(), primary_key=True),
@@ -102,3 +139,9 @@ def downgrade():
         "sn_blob_garbage",
     ):
         op.drop_table(table)
+    op.drop_table("sn_invitations")
+    op.drop_index("ix_sn_sessions_expires_at", "sn_sessions")
+    op.drop_index("ix_sn_sessions_user_id", "sn_sessions")
+    op.drop_table("sn_sessions")
+    op.drop_table("sn_instance")
+    op.drop_table("sn_users")

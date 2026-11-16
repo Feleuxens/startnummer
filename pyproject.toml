@@ -37,6 +37,7 @@ api = [
     "python-dotenv==1.2.2",
     "cryptography==49.0.0",
     "psutil==7.2.2",
+    "argon2-cffi==25.1.0",
 ]
 
 # Queue/review service. Select one device extra to run inference.

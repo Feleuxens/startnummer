@@ -24,6 +24,7 @@ export type ReviewStatus = { name: string; running: boolean };
 
 type Props = {
   initial: ReviewInput;
+  canPublish: boolean;
   messages: ReactNode;
   active: boolean;
   disciplines: Schema['DisciplineOption'][];
@@ -39,6 +40,7 @@ type Props = {
 
 export default function BatchReview({
   initial,
+  canPublish,
   messages,
   active,
   disciplines,
@@ -170,6 +172,7 @@ export default function BatchReview({
         {messages}
         <>
           <ReviewHeader
+            canPublish={canPublish}
             view={view}
             busy={busy}
             running={running}
@@ -315,16 +318,18 @@ export default function BatchReview({
               </section>
             )}
           </div>
-          <PublishingHistory
-            view={view}
-            busy={busy}
-            running={running}
-            changes={changes}
-            action={action}
-            onRefresh={refresh}
-            onSelectPhoto={selectPhoto}
-            onNotice={setNotice}
-          />
+          {canPublish && (
+            <PublishingHistory
+              view={view}
+              busy={busy}
+              running={running}
+              changes={changes}
+              action={action}
+              onRefresh={refresh}
+              onSelectPhoto={selectPhoto}
+              onNotice={setNotice}
+            />
+          )}
 
           <button
             className="danger-text"

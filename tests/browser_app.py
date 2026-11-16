@@ -23,6 +23,7 @@ from tests.test_workflow import HTML, Detector, Faces, FakeGallery, Ocr, image_b
 
 
 def create_fixture():
+    onboarding = os.environ.get("STARTNUMMER_BROWSER_ACCOUNTS") == "1"
     administration = os.environ.get("STARTNUMMER_BROWSER_INTEGRATION_MODE") == "administration"
     directory = TemporaryDirectory(prefix="startnummer-browser-")
     root = Path(directory.name)
@@ -35,7 +36,7 @@ def create_fixture():
         database_url=str(engine.url),
         blob_root=root / "photos",
         owner_id=uuid4(),
-        password="browser-test-only",
+        password="" if onboarding else "browser-test-only",
         session_secret="s" * 32,
         worker_secret="w" * 32,
         chevereto_url=None if administration else "http://gallery.test",
@@ -61,6 +62,12 @@ def create_fixture():
         integration_factory=gallery_factory,
         fetch=lambda url, roster=False: HTML if roster else image_bytes(),
     )
+    if onboarding:
+        # Synthetic fixture endpoint only; production setup codes are CLI-only.
+        @app.get("/fixture/setup-code")
+        def setup_code():
+            return {"code": app.state.authentication.setup_code()}
+
     stopped = threading.Event()
 
     def work():

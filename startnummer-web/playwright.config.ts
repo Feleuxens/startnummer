@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: './tests',
   workers: 1,
   projects: [
+    { name: 'accounts', testMatch: 'accounts.spec.ts', use: { baseURL: 'http://127.0.0.1:8101' } },
     { name: 'workflow', testMatch: 'workflow.spec.ts' },
     {
       name: 'integrations',
@@ -24,13 +25,20 @@ export default defineConfig({
   webServer: [
     {
       command:
-        '../.venv/bin/uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8099',
+        'uv run --no-sync uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8101',
+      url: 'http://127.0.0.1:8101',
+      reuseExistingServer: false,
+      env: { STARTNUMMER_BROWSER_ACCOUNTS: '1' },
+    },
+    {
+      command:
+        'uv run --no-sync uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8099',
       url: 'http://127.0.0.1:8099',
       reuseExistingServer: false,
     },
     {
       command:
-        '../.venv/bin/uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8100',
+        'uv run --no-sync uvicorn tests.browser_app:create_fixture --factory --app-dir .. --host 127.0.0.1 --port 8100',
       url: 'http://127.0.0.1:8100',
       reuseExistingServer: false,
       env: { STARTNUMMER_BROWSER_INTEGRATION_MODE: 'administration' },

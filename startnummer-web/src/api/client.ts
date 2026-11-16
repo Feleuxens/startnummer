@@ -7,6 +7,18 @@ export const api = createClient<paths>({
   headers: { 'X-Requested-With': 'Startnummer' },
 });
 
+api.use({
+  onResponse({ response, schemaPath, request }) {
+    if (
+      response.status === 401 &&
+      !(schemaPath === '/api/session' && request.method === 'POST') &&
+      !schemaPath.startsWith('/api/auth/')
+    ) {
+      window.dispatchEvent(new Event('startnummer:session-expired'));
+    }
+  },
+});
+
 export function message(error: unknown): string {
   if (error && typeof error === 'object' && 'detail' in error) {
     const detail = (error as { detail: unknown }).detail;
