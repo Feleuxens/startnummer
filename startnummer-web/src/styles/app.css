@@ -792,12 +792,26 @@ button.face-box.chosen {
 }
 .editor-actions {
   display: flex;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
   position: sticky;
   bottom: 0;
   background: var(--ground);
   padding-top: 8px;
+}
+.editor-actions > button {
+  flex: 0 0 auto;
+  height: 44px;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.editor-actions > button[type='submit'] {
+  width: 224px;
+}
+.editor-actions > button[type='button'] {
+  width: 176px;
 }
 .editor details {
   color: var(--muted);
