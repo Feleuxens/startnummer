@@ -94,13 +94,17 @@ export default function ReviewHeader({
         <section className="import-preview">
           <h2>Ready to analyze</h2>
           <p>Meet: {view.batch.album.meet_name || 'Not supplied'}</p>
-          <p>
-            Roster sample:{' '}
-            {view.batch.roster.athletes
-              ?.slice(0, 3)
-              .map((a) => `${a.bib || '—'} · ${a.name}`)
-              .join(' / ')}
-          </p>
+          {view.batch.roster.athletes?.length ? (
+            <p>
+              Roster sample:{' '}
+              {view.batch.roster.athletes
+                .slice(0, 3)
+                .map((a) => `${a.bib || '—'} · ${a.name}`)
+                .join(' / ')}
+            </p>
+          ) : (
+            <p>No roster supplied. Name detected people during review.</p>
+          )}
         </section>
       )}
       {latestJob && (

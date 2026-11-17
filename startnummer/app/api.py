@@ -226,9 +226,10 @@ def create_app(
     @app.get("/api/batches/{batch_id}", response_model=BatchView)
     def get_batch(batch_id: UUID, owner: Owner, service: Service):
         with store.transaction(owner) as db:
+            # A completed job must be read before the photos committed with its result.
+            jobs = store.jobs(owner, batch_id, session=db)
             batch = store.load(db, owner, batch_id)
             publications = store.publications(db, owner, batch_id)
-            jobs = store.jobs(owner, batch_id, session=db)
             return BatchView(batch=batch, publications=publications, jobs=jobs)
 
     @app.post("/api/batches/{batch_id}/photo-dates", response_model=Batch)

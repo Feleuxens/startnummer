@@ -67,7 +67,7 @@ def trusted_bib_values(bibs: Sequence[Confident[str]], entries: EntryList | None
 
     Without a roster, retain the existing confidence-based matching behavior.
     """
-    roster_bibs = {athlete.bib for athlete in entries.athletes if athlete.bib} if entries is not None else None
+    roster_bibs = {athlete.bib for athlete in entries.athletes if athlete.bib} if entries and entries.athletes else None
     return {bib.value for bib in bibs if roster_bibs is None or bib.source is Source.MANUAL or bib.value in roster_bibs}
 
 

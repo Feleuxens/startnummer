@@ -41,6 +41,7 @@ from startnummer.core.description import build_description
 from startnummer.core.entrytable import ATHLETE_AUTO, match_subject, trusted_bib_values
 from startnummer.core.enums import Source, Sport, Status
 from startnummer.core.errors import BlobNotFound
+from startnummer.core.interfaces import EntryList
 from startnummer.core.models import Athlete, Confident, Subject
 from startnummer.core.pipeline import STRONG_BIB_CONFIDENCE
 from startnummer.core.record import Album, AnalysisRecord
@@ -119,16 +120,19 @@ class Services:
                 return self.store.get(owner_id, import_id)
             except Missing:
                 pass
-        if bool(roster_html) == bool(roster_url):
-            raise WorkflowError("Choose exactly one roster source: HTML upload or supported URL")
+        roster_url = (roster_url or "").strip() or None
+        if roster_html is not None and roster_url:
+            raise WorkflowError("Choose only one roster source: HTML upload or supported URL")
         if roster_url:
             roster_html = self.fetch(roster_url, roster=True)
-        try:
-            roster = LeichtathletikDeEntryListParser().parse_content(roster_html.decode("utf-8-sig"))
-        except (ValueError, UnicodeError) as exc:
-            raise WorkflowError("Roster must be supported Competitoroverview or Resultoverview HTML") from exc
-        if not roster.athletes:
-            raise WorkflowError("The roster contains no supported entries")
+        roster = EntryList()
+        if roster_html is not None:
+            try:
+                roster = LeichtathletikDeEntryListParser().parse_content(roster_html.decode("utf-8-sig"))
+            except (ValueError, UnicodeError) as exc:
+                raise WorkflowError("Roster must be supported Competitoroverview or Resultoverview HTML") from exc
+            if not roster.athletes:
+                raise WorkflowError("The roster contains no supported entries")
         bibs = [athlete.bib for athlete in roster.athletes if athlete.bib]
         if len(set(bibs)) != len(bibs):
             raise WorkflowError("Roster contains duplicate bib numbers; correct the roster before analysis")
@@ -192,7 +196,7 @@ class Services:
             name=(name or "").strip() or "New batch",
             sport=Sport.ATHLETICS,
             meet_name=(meet_name or "").strip() or (roster.competition or "").strip() or None,
-            roster_source=roster_url or "uploaded roster HTML",
+            roster_source=roster_url or ("uploaded roster HTML" if roster_html is not None else None),
         )
         if import_id:
             album.id = import_id

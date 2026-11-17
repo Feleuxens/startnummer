@@ -121,7 +121,12 @@ class Worker:
                     lost.set()
                     raise Conflict("Worker lease was lost")
 
-            output = self.analyzer(batch.album, paths, entry_list=batch.roster, on_progress=on_progress)
+            output = self.analyzer(
+                batch.album,
+                paths,
+                entry_list=batch.roster if batch.roster.athletes else None,
+                on_progress=on_progress,
+            )
             geometry = {
                 str(staged[index].id): [face.model_dump(mode="json") for face in values]
                 for index, values in output.geometry.items()

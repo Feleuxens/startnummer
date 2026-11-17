@@ -1,12 +1,12 @@
 # Review an album
 
-Start with a small album and its competition roster. You will import the inputs,
+Start with a small album and a competition roster if available. You will import the inputs,
 review the generated captions, and approve the descriptions you want to publish.
 
 To publish to Chevereto, sign in as administrator and [connect the gallery](chevereto.md)
 first. Other accounts can upload and review photos in their own workspace.
 
-## 1. Import photos and a roster
+## 1. Import photos
 
 Choose **New batch**. Select a Chevereto album or upload JPEG, PNG, or WebP files.
 Multi-frame JPEGs (MPO) are supported; Startnummer uses the primary image and
@@ -18,6 +18,12 @@ Startnummer does not automatically exclude those preview files.
 Choose the roster independently: upload Competitoroverview or Resultoverview HTML,
 or enter the page's URL. You can combine either roster source with either photo
 source. The supported URL source is `ergebnisse.leichtathletik.de` by default.
+
+If you have no official list, choose **No roster**. Analysis still detects people,
+reads visible bibs, and groups matching faces. Give a detected person a **Name**
+and optional club during review, save, then use **Find matching faces…** to assign
+that identity to other photos. Names must be entered manually, and there are no
+roster-based discipline suggestions. You can still choose any supported discipline.
 
 Use **Resultoverview** when the entry list has no bib numbers. Startnummer reads
 the bib field, combines repeated appearances, and collects the listed disciplines.
@@ -77,7 +83,8 @@ bib, club, or a combination of terms. Each result shows all three fields.
 Choose an athlete under **Assign roster athlete** and save the correction.
 Searching or pressing Enter alone does not save an assignment.
 
-You can also give a detected face a name that is absent from the roster.
+You can also give a detected face a name that is absent from the roster, or work
+without a roster entirely.
 A visible bib is not required.
 
 If the person was not detected, choose **Add person from roster**, select the

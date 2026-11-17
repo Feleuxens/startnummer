@@ -91,8 +91,9 @@ administrator. You can [invite other users](accounts.md#invite-a-user) later.
 ## 5. Analyze a small album
 
 1. Choose **New batch**, then **Upload images**.
-2. Select a few original photos and a Competitoroverview or Resultoverview HTML roster.
-3. Choose **Import and preview** and check the photo count and roster sample.
+2. Select a few original photos. Supply a Competitoroverview or Resultoverview HTML
+   roster, or choose **No roster** to name people manually after analysis.
+3. Choose **Import and preview** and check the photo count and any supplied roster.
 4. Choose **Analyze batch**. The first run downloads model weights and can take
    longer than later runs.
 5. Open a photo and review its suggested caption. Save a correction if needed.

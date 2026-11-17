@@ -31,6 +31,9 @@ preview and confirmation.
 
 ## Roster and discipline selection
 
+Imports can omit the roster. Keep manual naming and face propagation available;
+hide empty roster selectors and explain the next step in the import preview.
+
 Roster search matches name, bib, and club, including combined terms. Results show
 all three fields. Searching does not save a correction. Keep a pending athlete
 selection visible even when a new search would exclude it.

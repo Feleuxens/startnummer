@@ -33,6 +33,10 @@ Import saves a fixed photo manifest, normalized roster, stable photo UUIDs, and
 readable byte references before queueing analysis. Retries use these saved inputs.
 Fetching and uploading roster HTML share the same parser.
 
+Imports without a roster save an empty entry list. The worker passes no roster
+to inference, preserving OCR evidence and face grouping without roster matching.
+Manual naming and confirmed face propagation use the same review flow.
+
 Identical photo bytes can share storage within an account, while each photo keeps
 its own identity, destination, caption, and approval. Cleanup deletes bytes only
 after their last retained reference is released. Failed deletion is retried.
@@ -79,9 +83,11 @@ for tmpfs and swap configuration.
 
 ## Resolve identities conservatively
 
-Exact roster bibs and manual corrections constrain face groups and donate bibs
-to other photos. Unsupported machine reads remain uncertain evidence, even with
-high OCR confidence. They must not split a valid face group or spread an identity.
+With a roster, exact roster bibs and manual corrections constrain face groups and
+donate bibs to other photos. Unsupported machine reads remain uncertain evidence,
+even with high OCR confidence. They must not split a valid face group or spread an identity.
+Without a roster, confident bib reads can constrain face groups and propagate;
+conflicting reads still require review. Names are assigned manually.
 A confident propagated bib can replace a tentative name; confirmed/manual
 identities and genuine roster conflicts remain protected.
 

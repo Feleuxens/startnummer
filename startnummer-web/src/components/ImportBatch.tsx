@@ -20,7 +20,7 @@ export default function ImportBatch({
       <div className="title-row">
         <div>
           <h1>New batch</h1>
-          <p>Choose photos and a competition roster independently.</p>
+          <p>Choose photos and, optionally, a competition roster.</p>
         </div>
       </div>
       <form
@@ -114,13 +114,21 @@ export default function ImportBatch({
               />{' '}
               Supported URL
             </label>
+            <label>
+              <input
+                type="radio"
+                checked={rosterSource === 'none'}
+                onChange={() => setRosterSource('none')}
+              />{' '}
+              No roster
+            </label>
           </div>
           {rosterSource === 'file' ? (
             <label>
               Roster HTML
               <input name="roster_file" type="file" accept=".html,.htm,text/html" required />
             </label>
-          ) : (
+          ) : rosterSource === 'url' ? (
             <label>
               Roster URL
               <input
@@ -130,8 +138,12 @@ export default function ImportBatch({
                 required
               />
             </label>
-          )}
-          <small>Competitoroverview or Resultoverview from ergebnisse.leichtathletik.de.</small>
+          ) : null}
+          <small>
+            {rosterSource === 'none'
+              ? 'Name detected people during review, then use face propagation to assign them to matching faces.'
+              : 'Competitoroverview or Resultoverview from ergebnisse.leichtathletik.de.'}
+          </small>
         </section>
         <section className="import-details">
           <h2>Batch details</h2>
@@ -150,12 +162,9 @@ export default function ImportBatch({
           </label>
         </section>
         <div className="import-footer">
-          <p>
-            Import saves the inputs. You can check the photo count and roster before starting
-            analysis.
-          </p>
+          <p>Import saves the inputs. You can check the photo count before starting analysis.</p>
           <button className="primary" disabled={busy}>
-            {busy ? 'Importing photos and roster…' : 'Import and preview'}
+            {busy ? 'Importing…' : 'Import and preview'}
           </button>
         </div>
       </form>

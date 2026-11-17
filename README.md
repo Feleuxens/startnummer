@@ -2,8 +2,8 @@
 
 # Startnummer
 
-Startnummer helps sports photographers turn photos and a competition roster into
-reviewed captions. Import an album, analyze it, correct names and disciplines,
+Startnummer helps sports photographers turn photos and an optional competition
+roster into reviewed captions. Import an album, analyze it, correct names and disciplines,
 then apply approved descriptions to existing **Chevereto 4.5.9** images.
 
 Your photos, roster, names, and captions stay available when you reopen an album.
@@ -21,7 +21,8 @@ through CoreML and the Neural Engine.
 ## What you can do
 
 - Import photos from Chevereto or upload JPEG, PNG, and WebP files.
-- Load a roster from a Competitoroverview or Resultoverview URL or HTML file.
+- Load a roster from a Competitoroverview or Resultoverview URL or HTML file,
+  or work without one.
 - Match athletes using bib reads and face matches within the album.
 - Correct a caption, assign a person from the roster, or name a detected face.
 - Assign one discipline to a sequence of photos.

@@ -785,6 +785,113 @@ test('preview matching faces, exclude a photo, preserve captions, and finish the
   await expect(page.getByLabel('Reviewed caption')).toHaveValue('Keep my edited caption');
 });
 
+for (const source of ['gallery', 'uploads']) {
+  test(`analyze ${source} without a roster, name a face, and propagate it`, async ({ page }) => {
+    await login(page);
+    let bytes: Buffer | undefined;
+    if (source === 'uploads') {
+      const seed = await page.request.post('/api/batches', {
+        headers: { 'X-Requested-With': 'Startnummer' },
+        multipart: { gallery_url: 'http://gallery.test/album/a' },
+      });
+      expect(seed.ok()).toBe(true);
+      const imageId = (await seed.json()).photos[0].id;
+      bytes = await (await page.request.get(`/api/photos/${imageId}`)).body();
+    }
+    await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+    if (source === 'gallery') {
+      await page.getByLabel('Album URL').fill('http://gallery.test/album/a');
+    } else {
+      await page.getByLabel('Upload images', { exact: true }).check();
+      await page.getByLabel('Image files').setInputFiles(
+        [1, 2].map((index) => ({
+          name: `no-roster-${index}.jpg`,
+          mimeType: 'image/jpeg',
+          buffer: bytes!,
+        })),
+      );
+    }
+    await page.getByLabel('Roster HTML').setInputFiles({
+      name: 'roster.html',
+      mimeType: 'text/html',
+      buffer: Buffer.from(html),
+    });
+    await page.getByLabel('No roster', { exact: true }).check();
+    await expect(page.getByLabel('Roster HTML')).toHaveCount(0);
+    await expect(page.getByLabel('Roster URL')).toHaveCount(0);
+    await page.getByLabel('Album name', { exact: true }).fill(`Without roster: ${source}`);
+    await page.getByLabel('Meet name', { exact: true }).fill('Example Meet');
+    if (source === 'uploads') {
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({
+        path: test.info().outputPath('optional-roster-mobile.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+    await page.getByRole('button', { name: 'Import and preview' }).click();
+    await expect(
+      page.getByText('No roster supplied. Name detected people during review.', { exact: true }),
+    ).toBeVisible();
+    const batchId = new URL(page.url()).hash.split('/')[1];
+    const read = async (): Promise<components['schemas']['BatchView']> =>
+      (await page.request.get(`/api/batches/${batchId}`)).json();
+    expect((await read()).batch.roster.athletes).toEqual([]);
+    expect((await read()).batch.album.roster_source).toBeNull();
+    await expect(page.getByText('Add person from roster', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Name detected face 1' })).toBeVisible({
+      timeout: 15000,
+    });
+    await page.getByRole('button', { name: 'Name detected face 1' }).click();
+    await expect(page.getByLabel('Search roster athletes', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Assign roster athlete', { exact: true })).toHaveCount(0);
+    await page.getByLabel('Name', { exact: true }).fill('Taylor Visitor');
+    await page.getByLabel('Club (optional)', { exact: true }).fill('Example Club');
+    await page.getByRole('button', { name: 'Save caption and corrections' }).click();
+    await expect(page.getByLabel('Reviewed caption')).toHaveValue(
+      'Taylor Visitor (Example Club) | Example Meet',
+    );
+    await page.getByRole('button', { name: 'Find matching faces…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Assign Taylor Visitor to matching faces?' });
+    await expect(dialog.getByText(/not in the saved roster/)).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Assign name to 1 selected photo' }).click();
+    await expect(dialog).toHaveCount(0);
+    const named = (await read()).batch;
+    expect(
+      named.photos.every(
+        (photo) => photo.caption === 'Taylor Visitor (Example Club) | Example Meet',
+      ),
+    ).toBe(true);
+    expect(
+      named.photos.every((photo) =>
+        photo.analysis?.record.subjects[0]?.bibs?.some((bib) => bib.value === '12'),
+      ),
+    ).toBe(true);
+    await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
+    if (source === 'uploads') {
+      await page.screenshot({
+        path: test.info().outputPath('optional-roster-review-desktop.png'),
+        fullPage: true,
+      });
+    }
+    await page
+      .getByRole('button', { name: 'Save review and finish face session', exact: true })
+      .click();
+    await expect(page.getByRole('button', { name: 'Name detected face 1' })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByLabel('Reviewed caption')).toHaveValue(
+      'Taylor Visitor (Example Club) | Example Meet',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Unapprove this photo', exact: true }),
+    ).toBeVisible();
+  });
+}
+
 test('propagation distinguishes tentative, already named, and protected faces', async ({
   page,
 }) => {
