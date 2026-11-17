@@ -15,9 +15,16 @@ keeps the original file unchanged.
 Use original photos; leave out generated `.annotated.jpg` and `.faces.jpg` previews.
 Startnummer does not automatically exclude those preview files.
 
-Choose the roster independently: upload Competitoroverview HTML or enter a
-supported roster URL. You can combine either roster source with either photo
+Choose the roster independently: upload Competitoroverview or Resultoverview HTML,
+or enter the page's URL. You can combine either roster source with either photo
 source. The supported URL source is `ergebnisse.leichtathletik.de` by default.
+
+Use **Resultoverview** when the entry list has no bib numbers. Startnummer reads
+the bib field, combines repeated appearances, and collects the listed disciplines.
+Relay members without individual bibs remain available without invented numbers.
+Results cover people listed in the published results; some entered athletes may
+be absent. The importer uses only the page you select and does not fetch or merge
+the other overview automatically.
 
 Enter an album name and, if you want it in captions, a meet name. Choose **Import
 and preview**. Check the saved photo count and roster sample before continuing.

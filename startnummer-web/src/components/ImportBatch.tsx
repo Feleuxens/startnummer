@@ -109,7 +109,7 @@ export default function ImportBatch({
           </div>
           {rosterSource === 'file' ? (
             <label>
-              Competitoroverview HTML
+              Roster HTML
               <input name="roster_file" type="file" accept=".html,.htm,text/html" required />
             </label>
           ) : (
@@ -123,6 +123,7 @@ export default function ImportBatch({
               />
             </label>
           )}
+          <small>Competitoroverview or Resultoverview from ergebnisse.leichtathletik.de.</small>
         </section>
         <section className="import-details">
           <h2>Batch details</h2>

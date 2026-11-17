@@ -21,7 +21,7 @@ through CoreML and the Neural Engine.
 ## What you can do
 
 - Import photos from Chevereto or upload JPEG, PNG, and WebP files.
-- Load a roster from a supported URL or Competitoroverview HTML file.
+- Load a roster from a Competitoroverview or Resultoverview URL or HTML file.
 - Match athletes using bib reads and face matches within the album.
 - Correct a caption, assign a person from the roster, or name a detected face.
 - Assign one discipline to a sequence of photos.

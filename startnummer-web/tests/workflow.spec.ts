@@ -111,7 +111,7 @@ async function disciplineBatch(page: Page) {
       buffer: bytes,
     })),
   );
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html),
@@ -294,7 +294,7 @@ test('search face assignments by bib, name, and club without changing the saved 
         .replace('Example Club', club!),
     ),
   ].join('');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(roster),
@@ -390,7 +390,7 @@ test('import, analyze, name an individual face, save, reopen, approve, apply, an
   await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
   await page
-    .getByLabel('Competitoroverview HTML')
+    .getByLabel('Roster HTML')
     .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(html) });
   await page.getByLabel('Album name', { exact: true }).fill('Browser acceptance');
   await page.getByLabel('Meet name', { exact: true }).fill('Synthetic Meet');
@@ -484,7 +484,7 @@ test('review and approval affect one photo; approve all requires explicit confir
     })),
   );
   await page
-    .getByLabel('Competitoroverview HTML')
+    .getByLabel('Roster HTML')
     .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(html) });
   await page.getByLabel('Album name', { exact: true }).fill('Four-photo approval scope');
   await page.getByRole('button', { name: 'Import and preview' }).click();
@@ -604,7 +604,7 @@ test('unapprove one photo and navigate without losing unsaved edits', async ({ p
   await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
   await page
-    .getByLabel('Competitoroverview HTML')
+    .getByLabel('Roster HTML')
     .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(html) });
   await page.getByLabel('Album name', { exact: true }).fill('Photo navigation');
   await page.getByRole('button', { name: 'Import and preview' }).click();
@@ -694,7 +694,7 @@ test('preview matching faces, exclude a photo, preserve captions, and finish the
       buffer: bytes,
     })),
   );
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html.replace('<div>12</div>', '<div>99</div>')),
@@ -807,7 +807,7 @@ test('propagation distinguishes tentative, already named, and protected faces', 
       buffer: bytes,
     })),
   );
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html),
@@ -902,7 +902,7 @@ test('gallery conflict can be inspected, refreshed, reviewed, and restored', asy
   await login(page);
   await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html),
@@ -996,7 +996,7 @@ test('session expiry removes matching-face previews without losing the saved nam
   await login(page);
   await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html),
@@ -1030,7 +1030,7 @@ test('add roster people without detection, generate captions, remove an entry, a
   const second = html
     .replace('<div>12</div>', '<div></div>')
     .replace('Example Alex', 'Visitor Sam');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html + second),
@@ -1107,7 +1107,7 @@ test('an incompatible worker session explains disabled propagation and keeps ind
   await login(page);
   await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html),
@@ -1159,7 +1159,7 @@ async function openAnalyzedGallery(page: Page, name: string) {
   await login(page);
   await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(html),
@@ -1269,3 +1269,64 @@ test('an older analysis poll cannot restore a cancelled job or its face selector
   await expect(page.locator('.face-box')).toHaveCount(0);
   await expect(page.getByLabel('Reviewed caption')).toHaveValue('Draft after cancellation');
 });
+
+for (const source of ['file', 'url'] as const) {
+  test(`import a Resultoverview roster from ${source}`, async ({ page }) => {
+    await login(page);
+    await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+    await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
+    if (source === 'url') {
+      await page.getByLabel('Supported URL', { exact: true }).check();
+      await page
+        .getByLabel('Roster URL', { exact: true })
+        .fill('https://roster.test/Competitions/Resultoverview/123');
+    } else {
+      const row = `<div class="entryline">
+        <div class="col-1"><div class="firstline">1</div><div class="secondline">345</div></div>
+        <div class="col-2"><div class="firstline">Example Alex</div><div class="secondline">Example Club</div></div>
+        <div class="col-3"><div class="firstline">U20</div><div class="secondline">2006</div></div>
+        <div class="col-4"><div class="firstline">12,34</div></div></div>`;
+      const results = `<div class="listheader"><div class="leftheader">100m U20 Zeitläufe</div></div>${row}${row}`;
+      await page.getByLabel('Roster HTML', { exact: true }).setInputFiles({
+        name: 'results.html',
+        mimeType: 'text/html',
+        buffer: Buffer.from(results),
+      });
+    }
+    await page.getByLabel('Album name', { exact: true }).fill(`Result roster ${source}`);
+    if (source === 'file') {
+      await page.screenshot({
+        path: test.info().outputPath('result-import-desktop.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({
+        path: test.info().outputPath('result-import-mobile.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+    await page.getByRole('button', { name: 'Import and preview', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Ready to analyze', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('2 photos · 1 roster entries · 0 approved', { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator('.import-preview')).toContainText('345 · Alex Example');
+    const batchId = new URL(page.url()).hash.split('/')[1];
+    const view = await (await page.request.get(`/api/batches/${batchId}`)).json();
+    expect(view.batch.roster.athletes).toHaveLength(1);
+    expect(view.batch.roster.athletes[0]).toMatchObject({
+      bib: '345',
+      name: 'Alex Example',
+      club: 'Example Club',
+      year_birth: 2006,
+    });
+    await page.reload();
+    await expect(page.locator('.import-preview')).toContainText('345 · Alex Example');
+  });
+}

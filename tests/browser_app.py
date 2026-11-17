@@ -19,6 +19,7 @@ from startnummer.app.api import create_app
 from startnummer.app.settings import Settings
 from startnummer.app.worker import Worker, session_server
 from startnummer.core.batch import WorkflowError
+from tests.test_entrylist_parser import results_html
 from tests.test_workflow import HTML, Detector, Faces, FakeGallery, Ocr, image_bytes
 
 
@@ -54,13 +55,18 @@ def create_fixture():
             raise WorkflowError("Could not read the Chevereto database; check the connection and schema")
         return gallery
 
+    def fetch(url, *, roster=False):
+        if roster:
+            return results_html().encode() if "/Resultoverview/" in url else HTML
+        return image_bytes()
+
     app = create_app(
         settings,
         store=store,
         blobs=blobs,
         sessions=sessions,
         integration_factory=gallery_factory,
-        fetch=lambda url, roster=False: HTML if roster else image_bytes(),
+        fetch=fetch,
     )
     if onboarding:
         # Synthetic fixture endpoint only; production setup codes are CLI-only.

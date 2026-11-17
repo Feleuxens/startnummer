@@ -58,7 +58,7 @@ test('configure, test, save, reload, and use an encrypted gallery connection', a
     .click();
   await expect(page.getByLabel('Album URL', { exact: true })).toBeEnabled();
   await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
-  await page.getByLabel('Competitoroverview HTML').setInputFiles({
+  await page.getByLabel('Roster HTML').setInputFiles({
     name: 'roster.html',
     mimeType: 'text/html',
     buffer: Buffer.from(

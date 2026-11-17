@@ -112,7 +112,7 @@ class Services:
         try:
             roster = LeichtathletikDeEntryListParser().parse_content(roster_html.decode("utf-8-sig"))
         except (ValueError, UnicodeError) as exc:
-            raise WorkflowError("Roster must be supported Competitoroverview HTML") from exc
+            raise WorkflowError("Roster must be supported Competitoroverview or Resultoverview HTML") from exc
         if not roster.athletes:
             raise WorkflowError("The roster contains no supported entries")
         bibs = [athlete.bib for athlete in roster.athletes if athlete.bib]
@@ -168,7 +168,7 @@ class Services:
             name=(name or "").strip() or "New batch",
             sport=Sport.ATHLETICS,
             meet_name=(meet_name or "").strip() or (roster.competition or "").strip() or None,
-            roster_source=roster_url or "uploaded Competitoroverview HTML",
+            roster_source=roster_url or "uploaded roster HTML",
         )
         if import_id:
             album.id = import_id

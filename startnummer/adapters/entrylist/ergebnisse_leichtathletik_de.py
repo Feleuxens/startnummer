@@ -1,9 +1,10 @@
-"""Entry-list parser for ergebnisse.leichtathletik.de Competitoroverview pages"""
+"""Competition rosters from ergebnisse.leichtathletik.de entries or results."""
 
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from startnummer.adapters.entrylist.resultoverview import parse_results
 from startnummer.core.interfaces import EntryList
 from startnummer.core.models import Athlete
 from startnummer.core.sports.athletics import AthleticsDiscipline
@@ -95,6 +96,9 @@ class LeichtathletikDeEntryListParser:
         try:
             html = BeautifulSoup(raw_html, features="html.parser")
             table.competition = ""
+            if html.select_one(".listheader, .entryline > .col-3") is not None:
+                table.athletes = parse_results(html)
+                return table
             entries = html.find_all("div", {"class": "entryline"})
             for entry in entries:
                 divs = entry.find_all("div")
