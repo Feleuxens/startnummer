@@ -29,6 +29,14 @@ export default function ImportBatch({
           event.preventDefault();
           const form = new FormData(event.currentTarget);
           form.set('import_id', importId.current);
+          if (photoSource === 'files') {
+            const modified = form.getAll('photos').map((photo) => {
+              if (!(photo instanceof File)) return null;
+              const date = new Date(photo.lastModified);
+              return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+            });
+            form.set('photo_modified', JSON.stringify(modified));
+          }
           void onImport(form);
         }}
       >

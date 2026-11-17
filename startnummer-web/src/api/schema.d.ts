@@ -315,6 +315,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/{batch_id}/photo-dates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read Photo Dates */
+        post: operations["read_photo_dates_api_batches__batch_id__photo_dates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}/analysis": {
         parameters: {
             query?: never;
@@ -922,6 +939,8 @@ export interface components {
             roster_file?: string | null;
             /** Photos */
             photos?: string[] | null;
+            /** Photo Modified */
+            photo_modified?: string | null;
         };
         /** ChangePreview */
         ChangePreview: {
@@ -1412,6 +1431,15 @@ export interface components {
              * @default 0
              */
             height: number;
+            /** Date Modified */
+            date_modified: string | null;
+            /** Date Taken */
+            date_taken: string | null;
+            /**
+             * Date Taken Read
+             * @default false
+             */
+            date_taken_read: boolean;
             destination: components["schemas"]["Destination"] | null;
             /** Current Description */
             current_description: string | null;
@@ -2401,6 +2429,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_photo_dates_api_batches__batch_id__photo_dates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Batch"];
                 };
             };
             /** @description Validation Error */

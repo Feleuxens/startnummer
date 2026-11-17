@@ -1,15 +1,18 @@
 import { useRef, useState } from 'react';
 import type { BatchView } from '../../api/types';
-import { filterPhotos, rangePhotoIds } from './model';
+import { filterPhotos, rangePhotoIds, sortPhotos } from './model';
+import type { PhotoSort } from './model';
 
 export function usePhotoSelection(view: BatchView) {
   const [filter, updateFilter] = useState('all');
+  const [sort, updateSort] = useState<PhotoSort>('name');
   const [selecting, setSelecting] = useState(false);
   const [checkedPhotos, setCheckedPhotos] = useState<Set<string>>(new Set());
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
   const anchor = useRef<string | null>(null);
-  const visible = filterPhotos(view.batch.photos, view.publications, filter);
+  const orderedPhotos = sortPhotos(view.batch.photos, sort);
+  const visible = filterPhotos(orderedPhotos, view.publications, filter);
   const selectablePhotos = visible.filter((photo) => photo.analysis);
   const selectedPhotos = selectablePhotos.filter((photo) => checkedPhotos.has(photo.id));
 
@@ -24,6 +27,10 @@ export function usePhotoSelection(view: BatchView) {
   }
   function setFilter(next: string) {
     updateFilter(next);
+    reset();
+  }
+  function setSort(next: PhotoSort) {
+    updateSort(next);
     reset();
   }
   function toggleSelection() {
@@ -57,6 +64,9 @@ export function usePhotoSelection(view: BatchView) {
   return {
     filter,
     setFilter,
+    sort,
+    setSort,
+    orderedPhotos,
     selecting,
     toggleSelection,
     visible,

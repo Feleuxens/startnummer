@@ -17,7 +17,7 @@ import PhotoViewer from './PhotoViewer';
 import ReviewControls from './ReviewControls';
 import PhotoQueue from './PhotoQueue';
 import { usePhotoSelection } from './usePhotoSelection';
-import { approved, eligible, selection, emptyFaces } from './model';
+import { approved, eligible, selection, emptyFaces, sortPhotos } from './model';
 
 export type ReviewInput = { view: BatchView; generation: number };
 export type ReviewStatus = { name: string; running: boolean };
@@ -56,7 +56,7 @@ export default function BatchReview({
   const { faces, setFaces, propagation, setPropagation } = useFaceSession(setNotice);
   const { view, running, refresh } = useBatch(initial.view, setFaces, setError);
   const [selectedId, setSelectedId] = useState<string | null>(
-    initial.view.batch.photos[0]?.id ?? null,
+    sortPhotos(initial.view.batch.photos, 'name')[0]?.id ?? null,
   );
   const [subject, setSubject] = useState<number | null>(null);
   const [disciplinePhotos, setDisciplinePhotos] = useState<Photo[] | null>(null);
@@ -158,9 +158,8 @@ export default function BatchReview({
     );
   }
 
-  const photos = view?.batch.photos ?? [];
   const photoSelection = usePhotoSelection(view);
-  const { visible, selectedPhotos } = photoSelection;
+  const { visible, selectedPhotos, orderedPhotos: photos } = photoSelection;
   const selected = photos.find((p) => p.id === selectedId);
   const selectedPosition = photos.findIndex((p) => p.id === selectedId);
   const visibleIds = new Set(visible.map((p) => p.id));
@@ -194,6 +193,15 @@ export default function BatchReview({
             running={running}
             eligibleCount={eligibleUnapproved.length}
             onShowQueue={() => setMobileDetail(false)}
+            onSort={(order) => {
+              photoSelection.setSort(order);
+              if (order === 'taken' && photos.some((photo) => !photo.date_taken_read)) {
+                void action(async () => {
+                  await reviewApi.readPhotoDates(batchId);
+                  await refresh();
+                });
+              }
+            }}
             onApproveAll={() => {
               setError('');
               if (changes.dirty.current) {

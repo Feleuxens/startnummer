@@ -9,6 +9,13 @@ export const getFaces = async (batchId: string) =>
     await api.GET('/api/batches/{batch_id}/faces', { params: { path: { batch_id: batchId } } }),
   );
 
+export const readPhotoDates = async (batchId: string) =>
+  unwrap(
+    await api.POST('/api/batches/{batch_id}/photo-dates', {
+      params: { path: { batch_id: batchId } },
+    }),
+  );
+
 export async function getReview(batchId: string) {
   const [view, faces] = await Promise.all([getBatch(batchId), getFaces(batchId)]);
   return { view, faces };

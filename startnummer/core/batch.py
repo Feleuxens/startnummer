@@ -51,6 +51,9 @@ class Photo(BaseModel):
     mime_type: str
     width: int = 0
     height: int = 0
+    date_modified: datetime | None = None
+    date_taken: datetime | None = None
+    date_taken_read: bool = False
     destination: Destination | None = None
     current_description: str | None = None
     analysis: AnalysisDocument | None = None

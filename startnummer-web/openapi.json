@@ -721,6 +721,46 @@
         }
       }
     },
+    "/api/batches/{batch_id}/photo-dates": {
+      "post": {
+        "summary": "Read Photo Dates",
+        "operationId": "read_photo_dates_api_batches__batch_id__photo_dates_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Batch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/batches/{batch_id}/analysis": {
       "post": {
         "summary": "Analyze",
@@ -2491,6 +2531,17 @@
               }
             ],
             "title": "Photos"
+          },
+          "photo_modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Modified"
           }
         },
         "type": "object",
@@ -3690,6 +3741,35 @@
             "title": "Height",
             "default": 0
           },
+          "date_modified": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Modified"
+          },
+          "date_taken": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Taken"
+          },
+          "date_taken_read": {
+            "type": "boolean",
+            "title": "Date Taken Read",
+            "default": false
+          },
           "destination": {
             "anyOf": [
               {
@@ -3785,6 +3865,9 @@
           "mime_type",
           "width",
           "height",
+          "date_modified",
+          "date_taken",
+          "date_taken_read",
           "destination",
           "current_description",
           "analysis",

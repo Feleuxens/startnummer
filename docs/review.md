@@ -52,6 +52,20 @@ together.
 Previous/next buttons below the image follow the current filter and stop at each
 end. Leaving unsaved edits requires confirmation.
 
+Photos start in natural filename order: `IMG_2.jpg` precedes `IMG_10.jpg`.
+Use **Sort by** to choose **File modified date**, **Date taken / EXIF**, or **Import order**.
+Dates sort oldest first; missing dates go last and filenames break ties.
+Navigation and selection ranges follow the chosen order. Changing the sort clears
+checked photos and range endpoints while keeping the open photo and its edits.
+
+**File modified date** is recorded from browser uploads or the gallery original's
+HTTP `Last-Modified` header. Older imports may lack that date; Startnummer does
+not substitute the storage copy's timestamp. **Date taken / EXIF** uses the
+camera's `DateTimeOriginal`, including subseconds, without correcting camera
+clocks or guessing time zones. Selecting EXIF order in an older album reads its
+saved originals once and caches the dates; it does not rerun analysis or discard
+a face session.
+
 Use **No event** when the caption should omit a discipline. An undetermined
 discipline means it has not yet been identified. Captions use the existing German
 and English discipline names; Startnummer does not invent new disciplines.
@@ -92,7 +106,7 @@ empty, so it cannot be approved.
 3. Choose **Assign discipline…** and select a discipline.
 4. Preview the caption changes and confirm.
 
-Ranges follow album order within the current filter. Changing the filter clears
+Ranges follow the current sort order within the filter. Changing either clears
 the selection. **Undetermined discipline** excludes photos marked **No event**.
 Roster events are suggestions; you can choose any supported discipline.
 

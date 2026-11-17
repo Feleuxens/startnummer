@@ -18,6 +18,9 @@ status refreshes, and navigation asks before discarding unsaved changes.
 
 Keep the contact sheet, selected photo, and caption evidence together.
 Previous/next controls are centered below the image and follow the current filter.
+Filename order is the default. Sort changes retain the open photo and its drafts;
+navigation and range selection use the same order. Clear checked photos and range
+endpoints when changing either the filter or sort.
 On narrow screens, a thumbnail opens its detail view; **Back to photos** returns
 to the contact sheet.
 
@@ -33,7 +36,7 @@ all three fields. Searching does not save a correction. Keep a pending athlete
 selection visible even when a new search would exclude it.
 
 Discipline selection uses contact-sheet checkboxes, Shift-click, and From/Through
-controls. Ranges follow album order within the filter; changing filters clears
+controls. Ranges follow the selected sort within the filter; changing filters clears
 the selection. Preview caption changes, identify replaced manual disciplines,
 and retain manually edited captions. Roster suggestions must leave the full
 discipline list available. Keep undetermined discipline distinct from **No event**.

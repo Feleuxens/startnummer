@@ -1,5 +1,34 @@
 import type { Schema, Photo, Selection, FaceView } from '../../api/types';
 
+export type PhotoSort = 'name' | 'modified' | 'taken' | 'original';
+const filenames = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function photoDate(value: string | null | undefined) {
+  if (!value) return null;
+  // Compare unzoned camera clocks consistently across browser time zones.
+  const milliseconds = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : value + 'Z');
+  if (!Number.isFinite(milliseconds)) return null;
+  const fraction = value.match(/\.(\d+)/)?.[1] ?? '';
+  return { milliseconds, microseconds: Number(fraction.slice(3, 6).padEnd(3, '0')) };
+}
+
+export function sortPhotos(photos: Photo[], order: PhotoSort): Photo[] {
+  if (order === 'original') return [...photos];
+  return [...photos].sort((left, right) => {
+    if (order !== 'name') {
+      const a = photoDate(order === 'taken' ? left.date_taken : left.date_modified);
+      const b = photoDate(order === 'taken' ? right.date_taken : right.date_modified);
+      if (a && !b) return -1;
+      if (!a && b) return 1;
+      if (a && b) {
+        const difference = a.milliseconds - b.milliseconds || a.microseconds - b.microseconds;
+        if (difference) return difference;
+      }
+    }
+    return filenames.compare(left.display_name, right.display_name);
+  });
+}
+
 export const photoUrl = (id: string) => `${import.meta.env.PUBLIC_API_URL || ''}/api/photos/${id}`;
 export const approved = (photo: Photo) =>
   photo.approved_revision != null && photo.approved_revision === photo.revision;

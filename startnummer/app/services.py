@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from pathlib import PurePath
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import LeichtathletikDeEntryListParser
 from startnummer.adapters.face.sessions import propagation_problem
+from startnummer.adapters.photo_dates import capture_time, modified_time
 from startnummer.app.contracts import (
     DisciplineChange,
     DisciplinePreview,
@@ -38,6 +40,7 @@ from startnummer.core.batch import (
 from startnummer.core.description import build_description
 from startnummer.core.entrytable import ATHLETE_AUTO, match_subject, trusted_bib_values
 from startnummer.core.enums import Source, Sport, Status
+from startnummer.core.errors import BlobNotFound
 from startnummer.core.models import Athlete, Confident, Subject
 from startnummer.core.pipeline import STRONG_BIB_CONFIDENCE
 from startnummer.core.record import Album, AnalysisRecord
@@ -51,6 +54,7 @@ class InputPhoto:
     data: bytes
     destination: object = None
     description: str | None = None
+    date_modified: datetime | None = None
 
 
 def run(awaitable):
@@ -62,6 +66,12 @@ async def chunks(data):
     yield data
 
 
+@dataclass
+class DownloadedSource:
+    data: bytes
+    date_modified: datetime | None
+
+
 class Services:
     def __init__(self, store: Store, blobs, settings, sessions, gallery=None, fetch=None):
         self.store, self.blobs, self.settings = store, blobs, settings
@@ -69,6 +79,9 @@ class Services:
         self.fetch = fetch or self._fetch
 
     def _fetch(self, url: str, *, roster: bool = False, gallery_base: str | None = None) -> bytes:
+        return self._download(url, roster=roster, gallery_base=gallery_base).data
+
+    def _download(self, url: str, *, roster: bool = False, gallery_base: str | None = None) -> DownloadedSource:
         parsed = urlparse(url)
         if roster:
             allowed = parsed.scheme in ("http", "https") and parsed.hostname in self.settings.roster_hosts
@@ -88,7 +101,7 @@ class Services:
                     data.extend(chunk)
                     if len(data) > limit:
                         raise WorkflowError("Source exceeds the configured size limit")
-                return bytes(data)
+                return DownloadedSource(bytes(data), modified_time(response.headers.get("last-modified")))
         except httpx.HTTPError as exc:
             raise WorkflowError("Could not fetch the configured source; check its URL and access") from exc
 
@@ -127,15 +140,24 @@ class Services:
             photos = []
             total = 0
             for remote_photo in remote:
-                data = (
-                    self._fetch(remote_photo.source_url, gallery_base=gallery.base_url)
+                downloaded = (
+                    self._download(remote_photo.source_url, gallery_base=gallery.base_url)
                     if self.fetch == self._fetch
-                    else self.fetch(remote_photo.source_url)
+                    else DownloadedSource(self.fetch(remote_photo.source_url), None)
                 )
+                data = downloaded.data
                 total += len(data)
                 if total > limits.max_batch_bytes:
                     raise WorkflowError("Batch exceeds the configured size limit")
-                photos.append(InputPhoto(remote_photo.name, data, remote_photo.destination, remote_photo.description))
+                photos.append(
+                    InputPhoto(
+                        remote_photo.name,
+                        data,
+                        remote_photo.destination,
+                        remote_photo.description,
+                        downloaded.date_modified,
+                    )
+                )
             name = (name or "").strip() or album_name
         if not photos:
             raise WorkflowError("The batch contains no photos")
@@ -160,10 +182,11 @@ class Services:
                     mime = "image/jpeg" if image.format == "MPO" else Image.MIME[image.format]
                     if image.getexif().get(274, 1) in {5, 6, 7, 8}:
                         width, height = height, width
+                    date_taken = capture_time(image)
                     image.verify()
             except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
                 raise WorkflowError("A selected file is not a valid supported image") from exc
-            checked.append((photo, width, height, mime))
+            checked.append((photo, width, height, mime, date_taken))
         album = Album(
             owner_id=owner_id,
             name=(name or "").strip() or "New batch",
@@ -182,7 +205,7 @@ class Services:
                         return self.store.load(session, owner_id, import_id)
                     except Missing:
                         pass
-                for photo, width, height, mime in checked:
+                for photo, width, height, mime, date_taken in checked:
                     digest = "sha256:" + hashlib.sha256(photo.data).hexdigest()
                     ref = run(self.blobs.put(owner_id, digest, chunks(photo.data)))
                     written.add(ref.key)
@@ -195,6 +218,9 @@ class Services:
                             mime_type=mime,
                             width=width,
                             height=height,
+                            date_modified=photo.date_modified,
+                            date_taken=date_taken,
+                            date_taken_read=True,
                             destination=photo.destination,
                             current_description=photo.description,
                         )
@@ -209,6 +235,21 @@ class Services:
             self.store.cleanup(owner_id, lambda key: run(self.blobs.delete(owner_id, key)))
             raise
         return batch
+
+    def read_photo_dates(self, owner_id, batch_id):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            pending = [photo for photo in batch.photos if not photo.date_taken_read]
+            for photo in pending:
+                try:
+                    with self.blobs.open(owner_id, photo.blob_key) as original, Image.open(original) as image:
+                        photo.date_taken = capture_time(image)
+                except (BlobNotFound, OSError, ValueError) as exc:
+                    raise WorkflowError(f"Could not read photo dates: {photo.display_name}") from exc
+                photo.date_taken_read = True
+            if pending:
+                self.store.save(session, batch)
+            return batch
 
     def delete_batch(self, owner_id, batch_id):
         with self.store.transaction(owner_id) as session:

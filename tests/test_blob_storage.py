@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
+from startnummer.core.errors import BlobNotFound
 from startnummer.core.ports import BlobRef, BlobStore
 
 
@@ -21,6 +22,8 @@ def test_storage_contract_atomic_failure_and_traversal(tmp_path):
         ref = await store.put(owner, digest, data())
         assert isinstance(ref, BlobRef) and ref.size == 5
         assert await store.read(owner, ref.key) == b"photo"
+        with store.open(owner, ref.key) as original:
+            assert original.read() == b"photo"
         assert await store.exists(owner, ref.key)
         assert await store.put(owner, digest, data()) == ref
         with pytest.raises(ValueError):
@@ -29,6 +32,10 @@ def test_storage_contract_atomic_failure_and_traversal(tmp_path):
             await store.read("../../other-owner", ref.key)
         other = uuid4()
         assert not await store.exists(other, ref.key)
+        with pytest.raises(BlobNotFound):
+            store.open(other, ref.key)
+        with pytest.raises(ValueError):
+            store.open(owner, "../escape")
         await store.delete(owner, ref.key)
         await store.delete(owner, ref.key)
         assert not (tmp_path / str(owner)).exists()

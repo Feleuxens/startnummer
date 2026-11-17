@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Respon
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import AwareDatetime, TypeAdapter, ValidationError
 from sqlalchemy import create_engine
 
 from startnummer.adapters.blob.filesystem import FilesystemBlobStore
@@ -166,7 +167,16 @@ def create_app(
 
     async def validate_import_fields(request: Request):
         form = await request.form()
-        allowed = {"import_id", "name", "meet_name", "gallery_url", "roster_url", "roster_file", "photos"}
+        allowed = {
+            "import_id",
+            "name",
+            "meet_name",
+            "gallery_url",
+            "roster_url",
+            "roster_file",
+            "photos",
+            "photo_modified",
+        }
         if set(form) - allowed:
             raise WorkflowError("Unknown import field; ownership comes from authentication")
 
@@ -186,6 +196,7 @@ def create_app(
         roster_url: Annotated[str | None, Form()] = None,
         roster_file: Annotated[UploadFile | None, File()] = None,
         photos: Annotated[list[UploadFile] | None, File()] = None,
+        photo_modified: Annotated[str | None, Form()] = None,
     ):
         limits = effective_settings(store, service.settings)
         inputs = []
@@ -196,6 +207,15 @@ def create_app(
             if len(data) > limits.max_file_bytes or total > limits.max_batch_bytes:
                 raise WorkflowError("Upload exceeds the configured size limit")
             inputs.append(InputPhoto(photo.filename or "photo", data))
+        if photo_modified is not None:
+            try:
+                dates = TypeAdapter(list[AwareDatetime | None]).validate_json(photo_modified)
+            except ValidationError as exc:
+                raise WorkflowError("Photo modification dates must be valid timestamps") from exc
+            if gallery_url or len(dates) != len(inputs):
+                raise WorkflowError("Photo modification dates must match uploaded files")
+            for photo, date in zip(inputs, dates, strict=True):
+                photo.date_modified = date
         html = roster_file.file.read(10 * 1024 * 1024 + 1) if roster_file else None
         if html and len(html) > 10 * 1024 * 1024:
             raise WorkflowError("Roster exceeds the size limit")
@@ -210,6 +230,10 @@ def create_app(
             publications = store.publications(db, owner, batch_id)
             jobs = store.jobs(owner, batch_id, session=db)
             return BatchView(batch=batch, publications=publications, jobs=jobs)
+
+    @app.post("/api/batches/{batch_id}/photo-dates", response_model=Batch)
+    def read_photo_dates(batch_id: UUID, owner: Owner, service: Service):
+        return service.read_photo_dates(owner, batch_id)
 
     @app.delete("/api/batches/{batch_id}")
     def delete_batch(batch_id: UUID, owner: Owner, service: Service) -> dict:

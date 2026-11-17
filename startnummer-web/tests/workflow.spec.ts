@@ -1475,3 +1475,190 @@ for (const source of ['file', 'url'] as const) {
     await expect(page.locator('.import-preview')).toContainText('345 · Alex Example');
   });
 }
+
+async function orderedBatch(page: Page, legacy = false) {
+  await login(page);
+  const response = await page.request.post(`/fixture/photo-order?legacy=${legacy}`);
+  expect(response.ok()).toBe(true);
+  const batch: components['schemas']['Batch'] = await response.json();
+  await page.reload();
+  await page
+    .getByRole('button')
+    .filter({ has: page.getByRole('heading', { name: batch.album.name, exact: true }) })
+    .click();
+  await expect(page.getByRole('heading', { name: batch.album.name, exact: true })).toBeVisible();
+  return batch;
+}
+
+const orderedNames = (page: Page) =>
+  page.getByRole('region', { name: 'Photo queue' }).locator('.photo-tile > span').allTextContents();
+
+test('filename, date, and import sorting share navigation and filtered selection order', async ({
+  page,
+}) => {
+  const batch = await orderedBatch(page);
+  const sort = page.getByRole('combobox', { name: 'Sort by', exact: true });
+  const detail = page.getByRole('region', { name: 'Selected photo' });
+  await expect(sort).toHaveValue('name');
+  expect(await orderedNames(page)).toEqual([
+    'photo-1.jpg',
+    'photo-2.jpg',
+    'photo-3.jpg',
+    'photo-10.jpg',
+  ]);
+  await expect(detail.getByRole('heading', { name: 'photo-1.jpg', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next photo', exact: true }).click();
+  await expect(detail.getByRole('heading', { name: 'photo-2.jpg', exact: true })).toBeVisible();
+  await sort.selectOption('modified');
+  expect(await orderedNames(page)).toEqual([
+    'photo-3.jpg',
+    'photo-10.jpg',
+    'photo-2.jpg',
+    'photo-1.jpg',
+  ]);
+  await expect(detail.getByRole('heading', { name: 'photo-2.jpg', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Previous photo', exact: true }).click();
+  await expect(detail.getByRole('heading', { name: 'photo-10.jpg', exact: true })).toBeVisible();
+  await sort.selectOption('taken');
+  expect(await orderedNames(page)).toEqual([
+    'photo-3.jpg',
+    'photo-2.jpg',
+    'photo-10.jpg',
+    'photo-1.jpg',
+  ]);
+  await page.getByRole('button', { name: 'Select photos', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Select photo-3.jpg', exact: true }).check();
+  await page
+    .getByRole('checkbox', { name: 'Select photo-10.jpg', exact: true })
+    .click({ modifiers: ['Shift'] });
+  await expect(page.getByRole('status').filter({ hasText: '3 selected' })).toBeVisible();
+  await sort.selectOption('name');
+  await expect(page.getByRole('status').filter({ hasText: '0 selected' })).toBeVisible();
+  const from = page.getByRole('combobox', { name: 'From photo', exact: true });
+  const through = page.getByRole('combobox', { name: 'Through photo', exact: true });
+  const id = (number: number) =>
+    batch.photos.find((photo) => photo.display_name === `photo-${number}.jpg`)!.id;
+  await expect(from).toHaveValue(id(1));
+  await expect(through).toHaveValue(id(10));
+  await page.getByRole('combobox', { name: 'Show', exact: true }).selectOption('undetermined');
+  await sort.selectOption('taken');
+  expect(await orderedNames(page)).toEqual(['photo-3.jpg', 'photo-10.jpg', 'photo-1.jpg']);
+  await from.selectOption(id(3));
+  await through.selectOption(id(1));
+  await page.getByRole('button', { name: 'Select range', exact: true }).click();
+  for (const number of [3, 10, 1])
+    await expect(
+      page.getByRole('checkbox', { name: `Select photo-${number}.jpg`, exact: true }),
+    ).toBeChecked();
+  await sort.selectOption('original');
+  expect(await orderedNames(page)).toEqual(['photo-10.jpg', 'photo-1.jpg', 'photo-3.jpg']);
+  await expect(page.getByRole('status').filter({ hasText: '0 selected' })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Show', exact: true }).selectOption('all');
+  expect(await orderedNames(page)).toEqual(batch.photos.map((photo) => photo.display_name));
+  await page.screenshot({ path: test.info().outputPath('photo-sort-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('photo-sort-mobile.png'), fullPage: true });
+  await page.getByRole('button', { name: /^Saved albums/ }).click();
+  await page
+    .getByRole('button')
+    .filter({ has: page.getByRole('heading', { name: batch.album.name, exact: true }) })
+    .click();
+  await expect(sort).toHaveValue('name');
+  expect(await orderedNames(page)).toEqual([
+    'photo-1.jpg',
+    'photo-2.jpg',
+    'photo-3.jpg',
+    'photo-10.jpg',
+  ]);
+});
+
+test('sorting older albums reads dates once without discarding drafts, approvals, or faces', async ({
+  page,
+}) => {
+  const batch = await orderedBatch(page, true);
+  const sort = page.getByRole('combobox', { name: 'Sort by', exact: true });
+  const caption = page.getByLabel('Reviewed caption');
+  await caption.fill('Keep my pending caption edits');
+  let dateReads = 0;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().endsWith(`/batches/${batch.album.id}/photo-dates`)
+    )
+      dateReads++;
+  });
+  const completed = page.waitForResponse(
+    (response) => response.url().endsWith('/photo-dates') && response.status() === 200,
+  );
+  await sort.selectOption('taken');
+  await completed;
+  await expect(sort).toBeEnabled();
+  expect(await orderedNames(page)).toEqual([
+    'photo-3.jpg',
+    'photo-2.jpg',
+    'photo-10.jpg',
+    'photo-1.jpg',
+  ]);
+  await expect(caption).toHaveValue('Keep my pending caption edits');
+  await expect(
+    page.getByRole('button', { name: 'Name detected face 1', exact: true }),
+  ).toBeVisible();
+  const after = (await (await page.request.get(`/api/batches/${batch.album.id}`)).json()).batch;
+  for (const photo of after.photos) {
+    const original = batch.photos.find((p) => p.id === photo.id)!;
+    expect(photo.date_taken_read).toBe(true);
+    expect(photo.revision).toBe(original.revision);
+    expect(photo.approved_revision).toBe(original.approved_revision);
+    expect(photo.caption).toBe(original.caption);
+  }
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: 'Previous photo', exact: true }).click();
+  await expect(caption).toHaveValue('Keep my pending caption edits');
+  await sort.selectOption('name');
+  await sort.selectOption('taken');
+  expect(dateReads).toBe(1);
+});
+
+test('uploads retain the browser file modification times for sorting', async ({ page }) => {
+  await login(page);
+  const seed = await page.request.post('/fixture/photo-order');
+  const sample = await seed.json();
+  const bytes = Array.from(
+    await (await page.request.get(`/api/photos/${sample.photos[0].id}`)).body(),
+  );
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Upload images', { exact: true }).check();
+  await page.getByLabel('Image files').evaluate((input, data) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([new Uint8Array(data)], 'photo-2.jpg', {
+        type: 'image/jpeg',
+        lastModified: Date.UTC(2020, 0, 1),
+      }),
+    );
+    transfer.items.add(
+      new File([new Uint8Array(data)], 'photo-1.jpg', {
+        type: 'image/jpeg',
+        lastModified: Date.UTC(2021, 0, 1),
+      }),
+    );
+    (input as HTMLInputElement).files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, bytes);
+  await page
+    .getByLabel('Roster HTML', { exact: true })
+    .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(html) });
+  await page.getByLabel('Album name', { exact: true }).fill('File modification times');
+  await page.getByRole('button', { name: 'Import and preview', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ready to analyze', exact: true })).toBeVisible();
+  expect(await orderedNames(page)).toEqual(['photo-1.jpg', 'photo-2.jpg']);
+  await page.getByRole('combobox', { name: 'Sort by', exact: true }).selectOption('modified');
+  expect(await orderedNames(page)).toEqual(['photo-2.jpg', 'photo-1.jpg']);
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const batch = (await (await page.request.get(`/api/batches/${batchId}`)).json()).batch;
+  expect(batch.photos.map((photo: components['schemas']['Photo']) => photo.date_modified)).toEqual([
+    '2020-01-01T00:00:00Z',
+    '2021-01-01T00:00:00Z',
+  ]);
+});

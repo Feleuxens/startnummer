@@ -9,6 +9,7 @@ import re
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID
 
 from startnummer.core.errors import BlobNotFound
@@ -58,6 +59,13 @@ class FilesystemBlobStore:
         if not path.is_relative_to(self._root / str(owner_id)):
             raise ValueError(f"key escapes blob root: {key!r}")
         return path
+
+    def open(self, owner_id: UUID, key: str) -> BinaryIO:
+        """Open an owned original for header reads without loading the full file."""
+        try:
+            return self._path(owner_id, key).open("rb")
+        except FileNotFoundError as exc:
+            raise BlobNotFound(owner_id, key) from exc
 
     async def put(
         self,

@@ -1,5 +1,6 @@
 import type { Photo, FaceView } from '../../api/types';
 import type { PhotoSelection } from './usePhotoSelection';
+import type { PhotoSort } from './model';
 
 export default function ReviewControls({
   photos,
@@ -12,6 +13,7 @@ export default function ReviewControls({
   onUndo,
   onAssignDiscipline,
   onShowQueue,
+  onSort,
 }: {
   photos: Photo[];
   faces: FaceView;
@@ -23,6 +25,7 @@ export default function ReviewControls({
   onUndo: () => void;
   onAssignDiscipline: () => void;
   onShowQueue: () => void;
+  onSort: (order: PhotoSort) => void;
 }) {
   const {
     filter,
@@ -53,6 +56,19 @@ export default function ReviewControls({
             <option value="pending">Not analyzed</option>
             <option value="publishing-issues">Publishing needs attention</option>
             <option value="published">Published</option>
+          </select>
+        </label>
+        <label>
+          Sort by{' '}
+          <select
+            value={selection.sort}
+            disabled={busy}
+            onChange={(event) => onSort(event.target.value as PhotoSort)}
+          >
+            <option value="name">Filename (A–Z)</option>
+            <option value="modified">File modified date (oldest first)</option>
+            <option value="taken">Date taken / EXIF (oldest first)</option>
+            <option value="original">Import order</option>
           </select>
         </label>
         <button
@@ -137,7 +153,7 @@ export default function ReviewControls({
           </div>
           <p className="muted">
             Check photos individually or Shift-click to extend a selection. Ranges follow the
-            current filter in album order. Changing the filter clears the selection.
+            current filter and sort order. Changing either clears the selection.
           </p>
         </section>
       )}

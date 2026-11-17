@@ -4,6 +4,7 @@ import os
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -16,10 +17,16 @@ from startnummer.adapters.db.schema import Base
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.app.api import create_app
+from startnummer.app.services import InputPhoto
 from startnummer.app.settings import Settings
 from startnummer.app.worker import Worker, session_server
-from startnummer.core.batch import WorkflowError
+from startnummer.core.batch import AnalysisDocument, WorkflowError
+from startnummer.core.enums import Source, Status
+from startnummer.core.models import Confident, Subject
+from startnummer.core.record import AnalysisRecord
+from startnummer.core.sports.athletics import AthleticsDiscipline, AthleticsEvent
 from tests.test_entrylist_parser import results_html
+from tests.test_photo_dates import dated_image
 from tests.test_workflow import HTML, Detector, Faces, FakeGallery, Ocr, image_bytes
 
 
@@ -73,6 +80,57 @@ def create_fixture():
         @app.get("/fixture/setup-code")
         def setup_code():
             return {"code": app.state.authentication.setup_code()}
+
+    @app.post("/fixture/photo-order")
+    def photo_order(legacy: bool = False):
+        data = ((10, 3, "100002"), (2, 4, "100001"), (1, 5, None), (3, 2, "100000"))
+        inputs = [
+            InputPhoto(
+                f"photo-{number}.jpg",
+                dated_image(fraction=fraction) if fraction else image_bytes(),
+                date_modified=datetime(2025, 7, day),
+            )
+            for number, day, fraction in data
+        ]
+        batch = app.state.services.import_batch(
+            settings.owner_id, "Photo order legacy" if legacy else "Photo order", "", inputs, None, HTML, None
+        )
+        for photo, (number, _, _) in zip(batch.photos, data, strict=True):
+            event = (
+                AthleticsEvent(
+                    discipline=Confident(value=AthleticsDiscipline.NO_EVENT, confidence=1, source=Source.MANUAL)
+                )
+                if number == 2
+                else AthleticsEvent()
+            )
+            photo.analysis = AnalysisDocument(
+                record=AnalysisRecord(
+                    owner_id=settings.owner_id,
+                    album_id=batch.album.id,
+                    content_hash=photo.content_hash,
+                    event=event,
+                    status=Status.AUTO,
+                    subjects=[
+                        Subject(
+                            athlete=Confident(value=batch.roster.athletes[0], confidence=0.95, source=Source.ROSTER)
+                        )
+                    ],
+                )
+            )
+            photo.caption = f"Caption for photo {number}"
+            photo.caption_edited = True
+            photo.approved_revision = photo.revision
+            if legacy:
+                photo.date_modified = photo.date_taken = None
+                photo.date_taken_read = False
+        with store.transaction(settings.owner_id) as session:
+            store.save(session, batch)
+        sessions.put(
+            settings.owner_id,
+            batch.album.id,
+            {str(photo.id): [{"subject": 0, "box": [1, 1, 10, 10]}] for photo in batch.photos},
+        )
+        return batch
 
     stopped = threading.Event()
 
