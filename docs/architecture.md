@@ -38,9 +38,10 @@ its own identity, destination, caption, and approval. Cleanup deletes bytes only
 after their last retained reference is released. Failed deletion is retried.
 
 Analysis recommendations, reviewed captions/approvals, and publication outcomes
-are separate records. Confidence is not approval. Reruns preserve manual captions, identity
-and discipline decisions, including explicit bib removal. Retained subject layouts
-do not receive fresh face selectors because detection indexes can change.
+are separate records. Confidence is not approval. Reruns preserve manual captions,
+identity and discipline decisions, explicit bib removal, and caption exclusions.
+Retained subject layouts do not receive fresh face selectors because detection
+indexes can change.
 
 ## Face-data lifetime
 

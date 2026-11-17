@@ -72,3 +72,12 @@ def test_no_confident_name_does_not_invent_caption(record):
 def test_bib_is_preserved_when_club_is_missing_or_empty(record, club):
     record.subjects[0].athlete.value.club = club
     assert build_description(record) == "Alex Example (12)"
+
+
+def test_excluded_subjects_do_not_hide_an_included_occurrence_of_the_same_person(record):
+    excluded = record.subjects[0].model_copy(deep=True)
+    excluded.excluded_from_caption = True
+    record.subjects.insert(0, excluded)
+    assert build_description(record) == "Alex Example (12, Example Club)"
+    record.subjects[1].excluded_from_caption = True
+    assert build_description(record) is None

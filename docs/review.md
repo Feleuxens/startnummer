@@ -46,6 +46,9 @@ results. An active model call may finish before processing stops.
 
 Open a thumbnail and compare its existing description, caption suggestion, and
 evidence. Correct names, bibs, clubs, or disciplines, then save your changes.
+Switch between faces or subjects to edit several people before saving. Pending
+corrections stay with each person; **Save caption and corrections** saves them
+together.
 Previous/next buttons below the image follow the current filter and stop at each
 end. Leaving unsaved edits requires confirmation.
 
@@ -67,6 +70,19 @@ If the person was not detected, choose **Add person from roster**, select the
 athlete, and choose **Add to this photo**. This generates a caption suggestion
 without adding detection evidence and also works before analysis. Use **Remove
 added person** to reverse an accidental addition.
+
+### Leave background people out of the caption
+
+Choose **Exclude** beside a person, then save the corrections. **Include** reverses
+the choice. The person and their evidence stay available for review; only their
+caption inclusion changes. The choice is specific to this photo and survives
+reopening and analysis reruns.
+
+Generated captions use the included people. A manually edited caption is kept;
+after saving, **Analysis suggestion** shows the updated generated text. Choose
+**Use generated caption** and save to replace your text and resume automatic
+caption generation. Excluding every named person leaves the generated caption
+empty, so it cannot be approved.
 
 ### Correct a sequence of disciplines
 

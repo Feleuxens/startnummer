@@ -218,6 +218,16 @@ class AddPerson(Revision):
     roster_index: int = Field(ge=0)
 
 
+class SubjectEdit(Input):
+    subject: int = Field(ge=0)
+    bib: str | None = None
+    roster_bib: str | None = None
+    athlete_name: str | None = None
+    club: str | None = None
+    excluded_from_caption: bool | None = None
+    face_session_id: str | None = None
+
+
 class Edit(Input):
     revision: int = Field(ge=0)
     caption: str | None = None
@@ -230,6 +240,8 @@ class Edit(Input):
     replace_existing: bool = False
     conflicts_resolved: bool = False
     face_session_id: str | None = None
+    subjects: list[SubjectEdit] = Field(default_factory=list)
+    use_generated_caption: bool = False
 
 
 class BatchView(BaseModel):

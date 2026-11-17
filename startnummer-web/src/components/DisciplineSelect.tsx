@@ -26,8 +26,8 @@ export default function DisciplineSelect({
   onChange: (value: Discipline['value'] | null) => void;
 }) {
   const entered = photos.flatMap((photo) =>
-    (photo.analysis?.record.subjects ?? []).flatMap(
-      (subject) => subject.athlete?.value.entered_events ?? [],
+    (photo.analysis?.record.subjects ?? []).flatMap((subject) =>
+      subject.excluded_from_caption ? [] : (subject.athlete?.value.entered_events ?? []),
     ),
   );
   const suggestions = new Set(

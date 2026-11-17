@@ -20,6 +20,7 @@ from startnummer.app.contracts import (
     FaceTarget,
     PropagationCandidate,
     PropagationPreview,
+    SubjectEdit,
 )
 from startnummer.app.operations import effective_settings
 from startnummer.core.batch import (
@@ -307,52 +308,34 @@ class Services:
                 raise Conflict("This photo changed since it was opened; reload before saving")
             fields = patch.model_fields_set
             record = photo.analysis.record if photo.analysis else None
-            if fields & {"bib", "athlete_name", "roster_bib", "discipline", "club"}:
+            identity_fields = {"bib", "athlete_name", "roster_bib", "club"}
+            corrections = patch.subjects
+            if corrections and fields & (identity_fields | {"subject", "face_session_id"}):
+                raise WorkflowError("Use either individual or multiple subject corrections, not both")
+            if fields & identity_fields:
+                if patch.subject is None:
+                    raise WorkflowError("Select a valid subject")
+                values = {key: getattr(patch, key) for key in fields & (identity_fields | {"face_session_id"})}
+                corrections = [SubjectEdit(subject=patch.subject, **values)]
+            if len({correction.subject for correction in corrections}) != len(corrections):
+                raise WorkflowError("Correct each subject only once")
+            if patch.use_generated_caption and "caption" in fields:
+                raise WorkflowError("Choose either a manual caption or the generated caption")
+            if corrections or "discipline" in fields or patch.use_generated_caption:
                 if record is None:
                     raise Conflict("Analyze the photo before correcting subjects or discipline")
+                for correction in corrections:
+                    self._edit_subject(batch, photo, correction)
+                if patch.use_generated_caption:
+                    photo.caption_edited = False
+                if corrections:
+                    self._regenerate_subject_caption(photo)
                 if "discipline" in fields:
                     self._set_discipline(photo, patch.discipline)
-                if fields & {"bib", "athlete_name", "roster_bib", "club"}:
-                    if patch.subject is None or not 0 <= patch.subject < len(record.subjects):
-                        raise WorkflowError("Select a valid subject")
-                    subject = record.subjects[patch.subject]
-                    if patch.face_session_id is not None:
-                        self.sessions.validate(owner_id, batch_id, photo_id, patch.subject, patch.face_session_id)
-                    subject.identity_edited = True
-                    if "bib" in fields:
-                        subject.bibs = (
-                            [Confident[str](value=patch.bib, confidence=1, source=Source.MANUAL)] if patch.bib else []
-                        )
-                        subject.athlete = None
-                        match_subject(subject, [], batch.roster)
-                    if "roster_bib" in fields:
-                        if not patch.roster_bib:
-                            raise WorkflowError("Select a roster athlete")
-                        athlete = batch.roster.by_bib(patch.roster_bib)
-                        if athlete is None:
-                            raise WorkflowError("Roster athlete not found")
-                        subject.athlete = Confident[Athlete](value=athlete, confidence=1, source=Source.MANUAL)
-                    elif "athlete_name" in fields:
-                        if not patch.athlete_name or not patch.athlete_name.strip():
-                            raise WorkflowError("Enter a name or select a roster athlete")
-                        subject.athlete = Confident[Athlete](
-                            value=Athlete(name=patch.athlete_name.strip(), club=patch.club or None),
-                            confidence=1,
-                            source=Source.MANUAL,
-                        )
-                    if "club" in fields and subject.athlete is not None:
-                        subject.athlete = Confident[Athlete](
-                            value=subject.athlete.value.model_copy(update={"club": patch.club or None}),
-                            confidence=1,
-                            source=Source.MANUAL,
-                        )
-                    # Re-resolve machine discipline from the corrected entries.
-                    if record.event.discipline is not None and record.event.discipline.source is not Source.MANUAL:
-                        record.event = get(record.sport).new_event()
-                    record.event = get(record.sport).resolve(record.event, record.subjects)
-                photo.proposal = record.description = build_description(record)
-                if not photo.caption_edited:
-                    photo.caption = photo.proposal
+                elif not corrections:
+                    photo.proposal = record.description = build_description(record)
+                    if not photo.caption_edited:
+                        photo.caption = photo.proposal
             if "caption" in fields:
                 photo.caption = patch.caption
                 photo.caption_edited = True
@@ -363,6 +346,50 @@ class Services:
             photo.changed()
             self.store.save(session, batch)
             return photo
+
+    def _edit_subject(self, batch, photo, correction):
+        record = photo.analysis.record
+        if not 0 <= correction.subject < len(record.subjects):
+            raise WorkflowError("Select a valid subject")
+        subject = record.subjects[correction.subject]
+        fields = correction.model_fields_set
+        if correction.face_session_id is not None:
+            self.sessions.validate(
+                batch.album.owner_id, batch.album.id, photo.id, correction.subject, correction.face_session_id
+            )
+        if "excluded_from_caption" in fields:
+            if correction.excluded_from_caption is None:
+                raise WorkflowError("Choose whether to include the person in the caption")
+            subject.excluded_from_caption = correction.excluded_from_caption
+        if fields & {"bib", "athlete_name", "roster_bib", "club"}:
+            subject.identity_edited = True
+        if "bib" in fields:
+            subject.bibs = (
+                [Confident[str](value=correction.bib, confidence=1, source=Source.MANUAL)] if correction.bib else []
+            )
+            subject.athlete = None
+            match_subject(subject, [], batch.roster)
+        if "roster_bib" in fields:
+            if not correction.roster_bib:
+                raise WorkflowError("Select a roster athlete")
+            athlete = batch.roster.by_bib(correction.roster_bib)
+            if athlete is None:
+                raise WorkflowError("Roster athlete not found")
+            subject.athlete = Confident[Athlete](value=athlete, confidence=1, source=Source.MANUAL)
+        elif "athlete_name" in fields:
+            if not correction.athlete_name or not correction.athlete_name.strip():
+                raise WorkflowError("Enter a name or select a roster athlete")
+            subject.athlete = Confident[Athlete](
+                value=Athlete(name=correction.athlete_name.strip(), club=correction.club or None),
+                confidence=1,
+                source=Source.MANUAL,
+            )
+        if "club" in fields and subject.athlete is not None:
+            subject.athlete = Confident[Athlete](
+                value=subject.athlete.value.model_copy(update={"club": correction.club or None}),
+                confidence=1,
+                source=Source.MANUAL,
+            )
 
     @staticmethod
     def _set_discipline(photo, discipline):
@@ -496,7 +523,9 @@ class Services:
         record = photo.analysis.record
         if record.event.discipline is not None and record.event.discipline.source is not Source.MANUAL:
             record.event = get(record.sport).new_event()
-        record.event = get(record.sport).resolve(record.event, record.subjects)
+        record.event = get(record.sport).resolve(
+            record.event, [subject for subject in record.subjects if not subject.excluded_from_caption]
+        )
         photo.proposal = record.description = build_description(record)
         if not photo.caption_edited:
             photo.caption = photo.proposal
@@ -701,6 +730,7 @@ class Services:
                 # detections cannot be mapped reliably to the old subject indexes.
                 has_manual = any(
                     s.identity_edited
+                    or s.excluded_from_caption
                     or (s.athlete and s.athlete.source is Source.MANUAL)
                     or any(b.source is Source.MANUAL for b in s.bibs)
                     for s in previous.subjects

@@ -1097,6 +1097,13 @@ export interface components {
             conflicts_resolved: boolean;
             /** Face Session Id */
             face_session_id?: string | null;
+            /** Subjects */
+            subjects?: components["schemas"]["SubjectEdit"][];
+            /**
+             * Use Generated Caption
+             * @default false
+             */
+            use_generated_caption: boolean;
         };
         /** EntryList */
         EntryList: {
@@ -1668,6 +1675,28 @@ export interface components {
              * @default false
              */
             added_manually: boolean;
+            /**
+             * Excluded From Caption
+             * @default false
+             */
+            excluded_from_caption: boolean;
+        };
+        /** SubjectEdit */
+        SubjectEdit: {
+            /** Subject */
+            subject: number;
+            /** Bib */
+            bib?: string | null;
+            /** Roster Bib */
+            roster_bib?: string | null;
+            /** Athlete Name */
+            athlete_name?: string | null;
+            /** Club */
+            club?: string | null;
+            /** Excluded From Caption */
+            excluded_from_caption?: boolean | null;
+            /** Face Session Id */
+            face_session_id?: string | null;
         };
         /** UserInfo */
         UserInfo: {

@@ -3069,6 +3069,18 @@
               }
             ],
             "title": "Face Session Id"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectEdit"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "use_generated_caption": {
+            "type": "boolean",
+            "title": "Use Generated Caption",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -4358,11 +4370,97 @@
             "type": "boolean",
             "title": "Added Manually",
             "default": false
+          },
+          "excluded_from_caption": {
+            "type": "boolean",
+            "title": "Excluded From Caption",
+            "default": false
           }
         },
         "type": "object",
         "title": "Subject",
         "description": "One detected person and their OCR, propagated bibs, and roster match."
+      },
+      "SubjectEdit": {
+        "properties": {
+          "subject": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Subject"
+          },
+          "bib": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bib"
+          },
+          "roster_bib": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Bib"
+          },
+          "athlete_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Athlete Name"
+          },
+          "club": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Club"
+          },
+          "excluded_from_caption": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded From Caption"
+          },
+          "face_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Face Session Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "subject"
+        ],
+        "title": "SubjectEdit"
       },
       "UserInfo": {
         "properties": {

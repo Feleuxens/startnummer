@@ -42,6 +42,7 @@ class Subject(BaseModel):
     athlete: Confident[Athlete] | None = None
     identity_edited: bool = False  # also preserves an explicit removal of a bib
     added_manually: bool = False
+    excluded_from_caption: bool = False
 
 
 class SportEvent(BaseModel):

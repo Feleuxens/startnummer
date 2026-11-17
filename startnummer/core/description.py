@@ -12,6 +12,8 @@ def _named_athletes(subjects: list[Subject], min_confidence: float) -> list[Athl
     athletes: list[Athlete] = []
     seen: set[tuple[str, str | None]] = set()
     for subject in subjects:
+        if subject.excluded_from_caption:
+            continue
         match = subject.athlete
         if match is None:
             continue
@@ -40,7 +42,7 @@ def _join(parts: list[str], conjunction: str) -> str:
 def build_description(record: AnalysisRecord, *, min_confidence: float = DEFAULT_MIN_CONFIDENCE) -> str | None:
     """Build a caption from athlete names, DE/EN discipline phrases, and meet name.
 
-    Omit unknown disciplines. Return None when no athlete meets the confidence
+    Omit unknown disciplines. Return None when no included athlete meets the confidence
     threshold; manually assigned athletes are included regardless of confidence.
     """
     athletes = _named_athletes(record.subjects, min_confidence)

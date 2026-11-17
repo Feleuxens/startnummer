@@ -256,13 +256,7 @@ export default function BatchReview({
                   position={selectedPosition}
                   total={photos.length}
                   onNavigate={selectPhoto}
-                  onSelectSubject={(index) => {
-                    if (changes.dirty.current) {
-                      setError('Save current changes before selecting another face.');
-                      return;
-                    }
-                    setSubject(index);
-                  }}
+                  onSelectSubject={setSubject}
                 />
                 <PhotoEditor
                   key={`${selected.id}:${selected.revision}`}

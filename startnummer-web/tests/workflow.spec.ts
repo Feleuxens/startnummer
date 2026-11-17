@@ -1270,6 +1270,151 @@ test('an older analysis poll cannot restore a cancelled job or its face selector
   await expect(page.getByLabel('Reviewed caption')).toHaveValue('Draft after cancellation');
 });
 
+async function subjectReviewBatch(page: Page) {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
+  const roster =
+    html +
+    html.replace('<div>12</div>', '<div>77</div>').replace('Example Alex', 'Example Sam') +
+    html
+      .replace('<div>12</div>', '<div>78</div>')
+      .replace('Example Alex', 'Example Jordan')
+      .replace('<a>100</a>', '<a>Weitsprung</a>');
+  await page.getByLabel('Roster HTML').setInputFiles({
+    name: 'roster.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from(roster),
+  });
+  await page.getByLabel('Album name', { exact: true }).fill('Subject review');
+  await page.getByLabel('Meet name', { exact: true }).fill('Example Meet');
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+  await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Name detected face 1', exact: true })).toBeVisible(
+    { timeout: 15000 },
+  );
+  const batchId = new URL(page.url()).hash.split('/')[1]!;
+  const read = async (): Promise<components['schemas']['BatchView']> =>
+    (await page.request.get(`/api/batches/${batchId}`)).json();
+  return { batchId, read };
+}
+
+test('edit several people and exclude a background person in one atomic save', async ({ page }) => {
+  const { batchId, read } = await subjectReviewBatch(page);
+  await page.getByText('Add person from roster', { exact: true }).click();
+  await page.getByRole('combobox', { name: 'Person to add', exact: true }).selectOption('1');
+  await page.getByRole('button', { name: 'Add to this photo', exact: true }).click();
+  await expect(page.locator('.subject-choice')).toHaveCount(2);
+  const before = (await read()).batch.photos;
+  const save = page.getByRole('button', { name: 'Save caption and corrections', exact: true });
+  await page.getByLabel('Or enter a name', { exact: true }).fill('Visitor Example');
+  await page.getByLabel('Club (optional)', { exact: true }).fill('Visitor Club');
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await page.getByLabel('Correct bib', { exact: true }).fill('78');
+  await page.getByRole('searchbox', { name: 'Search roster athletes', exact: true }).fill('Jordan');
+  await page
+    .getByRole('combobox', { name: 'Assign roster athlete', exact: true })
+    .selectOption('78');
+  await page.getByLabel('Club (optional)', { exact: true }).fill('Changed Club');
+  await page.locator('.subject-choice').nth(1).locator('.subject-row').click();
+  await expect(page.getByLabel('Or enter a name', { exact: true })).toHaveValue('Visitor Example');
+  await expect(page.getByLabel('Club (optional)', { exact: true })).toHaveValue('Visitor Club');
+  await page.getByRole('button', { name: 'Exclude person 2 from caption', exact: true }).click();
+  await expect(page.locator('.subject-choice').nth(1)).toContainText('Excluded from caption');
+  expect((await read()).batch.photos).toEqual(before);
+  const endpoint = `/api/batches/${batchId}/photos/${before[0]!.id}`;
+  await page.route('**' + endpoint, async (route) => {
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        detail: 'This photo changed since it was opened; reload before saving',
+      }),
+    });
+  });
+  await save.click();
+  await expect(page.getByRole('alert')).toContainText('This photo changed');
+  await expect(page.getByLabel('Or enter a name', { exact: true })).toHaveValue('Visitor Example');
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await expect(page.getByLabel('Correct bib', { exact: true })).toHaveValue('78');
+  await expect(
+    page.getByRole('combobox', { name: 'Assign roster athlete', exact: true }),
+  ).toHaveValue('78');
+  await expect(page.getByLabel('Club (optional)', { exact: true })).toHaveValue('Changed Club');
+  await expect(
+    page.getByRole('searchbox', { name: 'Search roster athletes', exact: true }),
+  ).toHaveValue('');
+  await page.unroute('**' + endpoint);
+  await save.click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Changes saved for same.jpg.' }),
+  ).toBeVisible();
+  const after = (await read()).batch.photos;
+  expect(after[0]!.revision).toBe(before[0]!.revision + 1);
+  const people = after[0]!.analysis!.record.subjects!;
+  expect(people[0]!.athlete!.value.name).toBe('Jordan Example');
+  expect(people[0]!.athlete!.value.club).toBe('Changed Club');
+  expect(people[1]!.athlete!.value.name).toBe('Visitor Example');
+  expect(people[1]!.athlete!.value.club).toBe('Visitor Club');
+  expect(people[1]!.excluded_from_caption).toBe(true);
+  expect(after[0]!.caption).toContain('Jordan Example (78, Changed Club)');
+  expect(after[0]!.caption).not.toContain('Visitor Example');
+  expect(after[1]).toEqual(before[1]);
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Include person 2 in caption', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Selected photo' })
+    .screenshot({ path: test.info().outputPath('subject-review-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('region', { name: 'Photo queue' }).getByRole('button').first().click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .getByRole('region', { name: 'Selected photo' })
+    .screenshot({ path: test.info().outputPath('subject-review-mobile.png') });
+  await page.getByRole('button', { name: 'Include person 2 in caption', exact: true }).click();
+  await save.click();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue(/Visitor Example/);
+});
+
+test('excluding a person preserves a manual caption until the generated caption is chosen', async ({
+  page,
+}) => {
+  const { read } = await subjectReviewBatch(page);
+  const caption = page.getByLabel('Reviewed caption');
+  const save = page.getByRole('button', { name: 'Save caption and corrections', exact: true });
+  await caption.fill('My manually edited caption');
+  await save.click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Changes saved for same.jpg.' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Exclude person 1 from caption', exact: true }).click();
+  await save.click();
+  await expect(
+    page.getByRole('button', { name: 'Include person 1 in caption', exact: true }),
+  ).toBeVisible();
+  await expect(caption).toHaveValue('My manually edited caption');
+  await expect(
+    page.getByText('No included person has a matched name.', { exact: true }),
+  ).toBeVisible();
+  expect((await read()).batch.photos[0]!.caption_edited).toBe(true);
+  await page.getByRole('button', { name: 'Use generated caption', exact: true }).click();
+  await expect(caption).toHaveValue('');
+  await save.click();
+  await expect(
+    page.getByRole('button', { name: 'Approve this photo', exact: true }),
+  ).toBeDisabled();
+  await expect.poll(async () => (await read()).batch.photos[0]!.caption).toBeNull();
+  const cleared = (await read()).batch.photos[0]!;
+  expect(cleared.caption).toBeNull();
+  expect(cleared.caption_edited).toBe(false);
+  await page.getByRole('button', { name: 'Include person 1 in caption', exact: true }).click();
+  await save.click();
+  await expect(caption).toHaveValue(/Alex Example/);
+});
+
 for (const source of ['file', 'url'] as const) {
   test(`import a Resultoverview roster from ${source}`, async ({ page }) => {
     await login(page);

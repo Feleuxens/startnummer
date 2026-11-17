@@ -38,6 +38,12 @@ the selection. Preview caption changes, identify replaced manual disciplines,
 and retain manually edited captions. Roster suggestions must leave the full
 discipline list available. Keep undetermined discipline distinct from **No event**.
 
+Subject drafts belong to each person, so selecting another face or subject never
+discards them. One save applies all corrections atomically. Each subject has a
+reversible Exclude/Include control for caption inclusion; keep its evidence and
+face index intact. Preserve manually edited captions and offer the regenerated
+caption explicitly.
+
 ## Temporary face review
 
 Face propagation has its own preview, matching-face highlights, photo selection,

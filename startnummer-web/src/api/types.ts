@@ -6,4 +6,5 @@ export type BatchView = Schema['BatchView'];
 export type FaceView = Schema['FaceView'];
 export type Selection = Schema['Selection'];
 export type Edit = Schema['Edit'];
+export type SubjectEdit = Schema['SubjectEdit'];
 export type Preview = Schema['ChangePreview'];
