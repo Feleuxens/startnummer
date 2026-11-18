@@ -32,6 +32,13 @@ cannot identify an individual photo's review state.
 Import saves a fixed photo manifest, normalized roster, stable photo UUIDs, and
 readable byte references before queueing analysis. Retries use these saved inputs.
 Fetching and uploading roster HTML share the same parser.
+Both layouts use the same name-order rules. New rosters retain the source name,
+chosen name order, and uncertain automatic decisions beside their athlete entries.
+A preview digest binds per-entry name corrections to the parsed roster and its
+order; a changed URL cannot apply an index correction to a different athlete.
+Manual roster assignment uses a saved roster index, including entries without
+bibs. Legacy bib-based correction requests remain supported. Existing roster
+documents load without name-parsing metadata and are not reparsed on reopening.
 
 Imports without a roster save an empty entry list. The worker passes no roster
 to inference, preserving OCR evidence and face grouping without roster matching.
@@ -82,6 +89,20 @@ RAM/VRAM zeroization. See [Operations](operations.md#check-persistent-storage)
 for tmpfs and swap configuration.
 
 ## Resolve identities conservatively
+
+Caption name overrides are private per-account display rules in the existing
+settings document. They replace a full name only while building the caption;
+roster entries and matched athlete identities retain their original values.
+Runtime settings reads ignore caption preferences, and updates preserve each
+other's fields under the shared settings revision. Backups validate and retain
+both kinds of settings without including credentials or face records.
+
+Analysis takes a snapshot of the owner's rules when the worker starts the job.
+Review regeneration uses current rules. Discipline and face-propagation previews
+carry the settings revision so applying a stale preview cannot change its caption
+silently. Saving rules does not rewrite saved photos. An explicit suggestion
+refresh preserves manual text, revokes approval only when the suggestion changes,
+and leaves the temporary face session intact.
 
 With a roster, exact roster bibs and manual corrections constrain face groups and
 donate bibs to other photos. Unsupported machine reads remain uncertain evidence,

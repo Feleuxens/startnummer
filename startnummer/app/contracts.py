@@ -7,6 +7,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from startnummer.core.batch import Batch, DescriptionWrite, Job, Publication
+from startnummer.core.description import caption_name_key
+from startnummer.core.interfaces import EntryList
+from startnummer.core.models import CaptionNameOverride
 from startnummer.core.sports.athletics import AthleticsDiscipline
 
 
@@ -153,6 +156,18 @@ class RuntimeSettings(Input):
         return self
 
 
+class CaptionNames(Input):
+    revision: int = Field(default=0, ge=0)
+    overrides: list[CaptionNameOverride] = Field(default_factory=list, max_length=1000)
+
+    @model_validator(mode="after")
+    def unique_names(self):
+        keys = [caption_name_key(rule.source_name) for rule in self.overrides]
+        if len(set(keys)) != len(keys):
+            raise ValueError("Each full source name can have only one override")
+        return self
+
+
 class WorkerHealth(BaseModel):
     reachable: bool
     state: Literal["starting", "idle", "busy", "unavailable"]
@@ -191,6 +206,7 @@ class Selected(Input):
 
 class DisciplineAssignment(Selected):
     discipline: AthleticsDiscipline
+    caption_names_revision: int | None = Field(default=None, ge=0)
 
 
 class DisciplineChange(BaseModel):
@@ -206,6 +222,7 @@ class DisciplineChange(BaseModel):
 
 
 class DisciplinePreview(BaseModel):
+    caption_names_revision: int | None = None
     discipline: AthleticsDiscipline
     photos: list[DisciplineChange]
 
@@ -222,6 +239,7 @@ class SubjectEdit(Input):
     subject: int = Field(ge=0)
     bib: str | None = None
     roster_bib: str | None = None
+    roster_index: int | None = Field(default=None, ge=0)
     athlete_name: str | None = None
     club: str | None = None
     excluded_from_caption: bool | None = None
@@ -234,6 +252,7 @@ class Edit(Input):
     subject: int | None = Field(default=None, ge=0)
     bib: str | None = None
     roster_bib: str | None = None
+    roster_index: int | None = Field(default=None, ge=0)
     athlete_name: str | None = None
     club: str | None = None
     discipline: AthleticsDiscipline | None = None
@@ -242,6 +261,24 @@ class Edit(Input):
     face_session_id: str | None = None
     subjects: list[SubjectEdit] = Field(default_factory=list)
     use_generated_caption: bool = False
+
+
+class RosterNameEdit(Input):
+    index: int = Field(ge=0)
+    name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def trim_name(cls, value):
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Enter a name")
+        return value
+
+
+class RosterPreview(BaseModel):
+    roster: EntryList
+    digest: str
 
 
 class BatchView(BaseModel):
@@ -280,6 +317,7 @@ class FaceTarget(Selection):
 class PropagationRequest(Input):
     source: FaceTarget
     face_session_id: str = Field(min_length=1)
+    caption_names_revision: int | None = Field(default=None, ge=0)
 
 
 class PropagationApply(PropagationRequest):

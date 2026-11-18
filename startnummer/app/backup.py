@@ -16,6 +16,8 @@ from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.db.accounts import AUTH_TABLES, username_key
 from startnummer.adapters.db.schema import Base, InstanceRow, UserRow
 from startnummer.adapters.db.store import Store
+from startnummer.app.contracts import CaptionNames, RuntimeSettings
+from startnummer.app.operations import RUNTIME_FIELDS
 from startnummer.core.batch import Conflict, WorkflowError, now
 
 CHUNK = 1024 * 1024
@@ -177,8 +179,16 @@ def validate_archive(archive):
             if set(row) != set(table.c.keys()) or UUID(row["owner_id"]) != owner:
                 raise WorkflowError("Backup records have invalid columns or ownership")
     for row in tables["sn_settings"]:
-        if set(row["document"]) != {"max_file_bytes", "max_batch_bytes", "session_ttl"}:
+        document = row["document"]
+        if set(document) - (RUNTIME_FIELDS | {"caption_name_overrides"}):
             raise WorkflowError("Backup contains unsupported administrator settings")
+        try:
+            runtime = {key: value for key, value in document.items() if key in RUNTIME_FIELDS}
+            if runtime:
+                RuntimeSettings(**runtime)
+            CaptionNames(overrides=document.get("caption_name_overrides", []))
+        except ValueError as exc:
+            raise WorkflowError("Backup contains invalid caption or administrator settings") from exc
     for photo in tables["sn_photos"]:
         name = f"photos/{photo['owner_id']}/{photo['blob_key']}"
         expected = files.get(name)

@@ -409,6 +409,60 @@
         }
       }
     },
+    "/api/account/caption-names": {
+      "get": {
+        "summary": "Get Caption Names",
+        "operationId": "get_caption_names_api_account_caption_names_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptionNames"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Save Caption Names",
+        "operationId": "save_caption_names_api_account_caption_names_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptionNames"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptionNames"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/settings": {
       "put": {
         "summary": "Update Settings",
@@ -641,6 +695,43 @@
         }
       }
     },
+    "/api/roster/preview": {
+      "post": {
+        "summary": "Preview Roster",
+        "operationId": "preview_roster_api_roster_preview_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_roster_api_roster_preview_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RosterPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/batches/{batch_id}": {
       "get": {
         "summary": "Get Batch",
@@ -744,6 +835,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Batch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion": {
+      "post": {
+        "summary": "Refresh Caption Suggestion",
+        "operationId": "refresh_caption_suggestion_api_batches__batch_id__photos__photo_id__caption_suggestion_post",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          },
+          {
+            "name": "photo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Photo Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Revision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Photo"
                 }
               }
             }
@@ -2542,10 +2693,113 @@
               }
             ],
             "title": "Photo Modified"
+          },
+          "name_order": {
+            "$ref": "#/components/schemas/NameOrder",
+            "default": "auto"
+          },
+          "roster_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Digest"
+          },
+          "roster_names": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Names"
           }
         },
         "type": "object",
         "title": "Body_import_batch_api_batches_post"
+      },
+      "Body_preview_roster_api_roster_preview_post": {
+        "properties": {
+          "roster_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Url"
+          },
+          "roster_file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster File"
+          },
+          "name_order": {
+            "$ref": "#/components/schemas/NameOrder",
+            "default": "auto"
+          }
+        },
+        "type": "object",
+        "title": "Body_preview_roster_api_roster_preview_post"
+      },
+      "CaptionNameOverride": {
+        "properties": {
+          "source_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source Name"
+          },
+          "caption_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Caption Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_name",
+          "caption_name"
+        ],
+        "title": "CaptionNameOverride"
+      },
+      "CaptionNames": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/CaptionNameOverride"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Overrides"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CaptionNames"
       },
       "ChangePreview": {
         "properties": {
@@ -2876,6 +3130,18 @@
           },
           "discipline": {
             "$ref": "#/components/schemas/AthleticsDiscipline"
+          },
+          "caption_names_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption Names Revision"
           }
         },
         "additionalProperties": false,
@@ -2998,6 +3264,17 @@
       },
       "DisciplinePreview": {
         "properties": {
+          "caption_names_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption Names Revision"
+          },
           "discipline": {
             "$ref": "#/components/schemas/AthleticsDiscipline"
           },
@@ -3067,6 +3344,18 @@
               }
             ],
             "title": "Roster Bib"
+          },
+          "roster_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Index"
           },
           "athlete_name": {
             "anyOf": [
@@ -3160,6 +3449,17 @@
             },
             "type": "array",
             "title": "Athletes"
+          },
+          "name_order": {
+            "$ref": "#/components/schemas/NameOrder",
+            "default": "auto"
+          },
+          "name_parsing": {
+            "items": {
+              "$ref": "#/components/schemas/RosterName"
+            },
+            "type": "array",
+            "title": "Name Parsing"
           }
         },
         "type": "object",
@@ -3677,6 +3977,16 @@
         ],
         "title": "Login"
       },
+      "NameOrder": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "surname_first",
+          "given_first",
+          "as_written"
+        ],
+        "title": "NameOrder"
+      },
       "PasswordChange": {
         "properties": {
           "current_password": {
@@ -3891,6 +4201,18 @@
             "minLength": 1,
             "title": "Face Session Id"
           },
+          "caption_names_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption Names Revision"
+          },
           "targets": {
             "items": {
               "$ref": "#/components/schemas/FaceTarget"
@@ -4037,6 +4359,18 @@
             "minLength": 1,
             "title": "Face Session Id"
           },
+          "caption_names_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption Names Revision"
+          },
           "athlete_name": {
             "type": "string",
             "title": "Athlete Name"
@@ -4065,6 +4399,7 @@
         "required": [
           "source",
           "face_session_id",
+          "caption_names_revision",
           "athlete_name",
           "candidates",
           "expires_at",
@@ -4081,6 +4416,18 @@
             "type": "string",
             "minLength": 1,
             "title": "Face Session Id"
+          },
+          "caption_names_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption Names Revision"
           }
         },
         "additionalProperties": false,
@@ -4241,6 +4588,45 @@
           "revision"
         ],
         "title": "Revision"
+      },
+      "RosterName": {
+        "properties": {
+          "source_name": {
+            "type": "string",
+            "title": "Source Name"
+          },
+          "order": {
+            "$ref": "#/components/schemas/NameOrder"
+          },
+          "needs_review": {
+            "type": "boolean",
+            "title": "Needs Review",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_name",
+          "order"
+        ],
+        "title": "RosterName"
+      },
+      "RosterPreview": {
+        "properties": {
+          "roster": {
+            "$ref": "#/components/schemas/EntryList"
+          },
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "roster",
+          "digest"
+        ],
+        "title": "RosterPreview"
       },
       "RuntimeSettings": {
         "properties": {
@@ -4492,6 +4878,18 @@
               }
             ],
             "title": "Roster Bib"
+          },
+          "roster_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roster Index"
           },
           "athlete_name": {
             "anyOf": [

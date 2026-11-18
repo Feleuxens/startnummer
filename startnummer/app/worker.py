@@ -18,6 +18,7 @@ from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.adapters.runtime import Backend, BackendUnavailable
+from startnummer.app.captions import caption_overrides
 from startnummer.app.inference import InlineAnalyzer, ProcessAnalyzer
 from startnummer.app.services import Services, run
 from startnummer.core.batch import AnalysisDocument, Conflict, Job, WorkflowError
@@ -87,6 +88,7 @@ class Worker:
 
     def _execute(self, job: Job, progress, lost):
         batch = self.store.get(job.owner_id, job.batch_id)
+        _, names = caption_overrides(self.store, job.owner_id)
         results, geometry = {}, {}
         with TemporaryDirectory(prefix="startnummer-worker-") as directory:
             paths, staged = [], []
@@ -141,7 +143,7 @@ class Worker:
         _, options = self.store.installation_settings(job.owner_id)
 
         def merge(current):
-            retained = Services.merge_analysis(current, results)
+            retained = Services.merge_analysis(current, results, names)
             for photo_id in retained:
                 # A retained manual layout may not align with fresh detections.
                 geometry.pop(str(photo_id), None)

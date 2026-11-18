@@ -210,6 +210,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/account/caption-names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Caption Names */
+        get: operations["get_caption_names_api_account_caption_names_get"];
+        /** Save Caption Names */
+        put: operations["save_caption_names_api_account_caption_names_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/settings": {
         parameters: {
             query?: never;
@@ -297,6 +315,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/roster/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Roster */
+        post: operations["preview_roster_api_roster_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}": {
         parameters: {
             query?: never;
@@ -326,6 +361,23 @@ export interface paths {
         put?: never;
         /** Read Photo Dates */
         post: operations["read_photo_dates_api_batches__batch_id__photo_dates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Caption Suggestion */
+        post: operations["refresh_caption_suggestion_api_batches__batch_id__photos__photo_id__caption_suggestion_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -941,6 +993,38 @@ export interface components {
             photos?: string[] | null;
             /** Photo Modified */
             photo_modified?: string | null;
+            /** @default auto */
+            name_order: components["schemas"]["NameOrder"];
+            /** Roster Digest */
+            roster_digest?: string | null;
+            /** Roster Names */
+            roster_names?: string | null;
+        };
+        /** Body_preview_roster_api_roster_preview_post */
+        Body_preview_roster_api_roster_preview_post: {
+            /** Roster Url */
+            roster_url?: string | null;
+            /** Roster File */
+            roster_file?: string | null;
+            /** @default auto */
+            name_order: components["schemas"]["NameOrder"];
+        };
+        /** CaptionNameOverride */
+        CaptionNameOverride: {
+            /** Source Name */
+            source_name: string;
+            /** Caption Name */
+            caption_name: string;
+        };
+        /** CaptionNames */
+        CaptionNames: {
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Overrides */
+            overrides?: components["schemas"]["CaptionNameOverride"][];
         };
         /** ChangePreview */
         ChangePreview: {
@@ -1049,6 +1133,8 @@ export interface components {
             /** Photos */
             photos: components["schemas"]["Selection"][];
             discipline: components["schemas"]["AthleticsDiscipline"];
+            /** Caption Names Revision */
+            caption_names_revision?: number | null;
         };
         /** DisciplineChange */
         DisciplineChange: {
@@ -1083,6 +1169,8 @@ export interface components {
         };
         /** DisciplinePreview */
         DisciplinePreview: {
+            /** Caption Names Revision */
+            caption_names_revision?: number | null;
             discipline: components["schemas"]["AthleticsDiscipline"];
             /** Photos */
             photos: components["schemas"]["DisciplineChange"][];
@@ -1099,6 +1187,8 @@ export interface components {
             bib?: string | null;
             /** Roster Bib */
             roster_bib?: string | null;
+            /** Roster Index */
+            roster_index?: number | null;
             /** Athlete Name */
             athlete_name?: string | null;
             /** Club */
@@ -1130,6 +1220,10 @@ export interface components {
             competition?: string | null;
             /** Athletes */
             athletes?: components["schemas"]["Athlete"][];
+            /** @default auto */
+            name_order: components["schemas"]["NameOrder"];
+            /** Name Parsing */
+            name_parsing?: components["schemas"]["RosterName"][];
         };
         /** FaceBox */
         FaceBox: {
@@ -1391,6 +1485,11 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * NameOrder
+         * @enum {string}
+         */
+        NameOrder: "auto" | "surname_first" | "given_first" | "as_written";
         /** PasswordChange */
         PasswordChange: {
             /**
@@ -1476,6 +1575,8 @@ export interface components {
             source: components["schemas"]["FaceTarget"];
             /** Face Session Id */
             face_session_id: string;
+            /** Caption Names Revision */
+            caption_names_revision?: number | null;
             /** Targets */
             targets: components["schemas"]["FaceTarget"][];
             /**
@@ -1529,6 +1630,8 @@ export interface components {
             source: components["schemas"]["FaceTarget"];
             /** Face Session Id */
             face_session_id: string;
+            /** Caption Names Revision */
+            caption_names_revision: number | null;
             /** Athlete Name */
             athlete_name: string;
             /** Candidates */
@@ -1543,6 +1646,8 @@ export interface components {
             source: components["schemas"]["FaceTarget"];
             /** Face Session Id */
             face_session_id: string;
+            /** Caption Names Revision */
+            caption_names_revision?: number | null;
         };
         /** PropagationUndo */
         PropagationUndo: {
@@ -1611,6 +1716,23 @@ export interface components {
         Revision: {
             /** Revision */
             revision: number;
+        };
+        /** RosterName */
+        RosterName: {
+            /** Source Name */
+            source_name: string;
+            order: components["schemas"]["NameOrder"];
+            /**
+             * Needs Review
+             * @default false
+             */
+            needs_review: boolean;
+        };
+        /** RosterPreview */
+        RosterPreview: {
+            roster: components["schemas"]["EntryList"];
+            /** Digest */
+            digest: string;
         };
         /** RuntimeSettings */
         RuntimeSettings: {
@@ -1717,6 +1839,8 @@ export interface components {
             bib?: string | null;
             /** Roster Bib */
             roster_bib?: string | null;
+            /** Roster Index */
+            roster_index?: number | null;
             /** Athlete Name */
             athlete_name?: string | null;
             /** Club */
@@ -2173,6 +2297,59 @@ export interface operations {
             };
         };
     };
+    get_caption_names_api_account_caption_names_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptionNames"];
+                };
+            };
+        };
+    };
+    save_caption_names_api_account_caption_names_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptionNames"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptionNames"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_settings_api_admin_settings_put: {
         parameters: {
             query?: never;
@@ -2378,6 +2555,39 @@ export interface operations {
             };
         };
     };
+    preview_roster_api_roster_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_preview_roster_api_roster_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RosterPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_batch_api_batches__batch_id__get: {
         parameters: {
             query?: never;
@@ -2460,6 +2670,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Batch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_caption_suggestion_api_batches__batch_id__photos__photo_id__caption_suggestion_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+                photo_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Photo"];
                 };
             };
             /** @description Validation Error */

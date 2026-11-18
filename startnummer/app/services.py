@@ -16,12 +16,14 @@ from startnummer.adapters.db.store import Store
 from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import LeichtathletikDeEntryListParser
 from startnummer.adapters.face.sessions import propagation_problem
 from startnummer.adapters.photo_dates import capture_time, modified_time
+from startnummer.app.captions import caption_overrides
 from startnummer.app.contracts import (
     DisciplineChange,
     DisciplinePreview,
     FaceTarget,
     PropagationCandidate,
     PropagationPreview,
+    RosterPreview,
     SubjectEdit,
 )
 from startnummer.app.operations import effective_settings
@@ -39,7 +41,7 @@ from startnummer.core.batch import (
 )
 from startnummer.core.description import build_description
 from startnummer.core.entrytable import ATHLETE_AUTO, match_subject, trusted_bib_values
-from startnummer.core.enums import Source, Sport, Status
+from startnummer.core.enums import NameOrder, Source, Sport, Status
 from startnummer.core.errors import BlobNotFound
 from startnummer.core.interfaces import EntryList
 from startnummer.core.models import Athlete, Confident, Subject
@@ -111,8 +113,51 @@ class Services:
             raise WorkflowError("No gallery is configured")
         return self.gallery.snapshot() if hasattr(self.gallery, "snapshot") else self.gallery
 
+    def _read_roster(self, roster_html, roster_url, name_order):
+        roster_url = (roster_url or "").strip() or None
+        if roster_html is not None and roster_url:
+            raise WorkflowError("Choose only one roster source: HTML upload or supported URL")
+        if roster_url:
+            roster_html = self.fetch(roster_url, roster=True)
+        roster = EntryList(name_order=name_order)
+        if roster_html is not None:
+            try:
+                roster = LeichtathletikDeEntryListParser().parse_content(
+                    roster_html.decode("utf-8-sig"), name_order=name_order
+                )
+            except (ValueError, UnicodeError) as exc:
+                raise WorkflowError("Roster must be supported Competitoroverview or Resultoverview HTML") from exc
+            if not roster.athletes:
+                raise WorkflowError("The roster contains no supported entries")
+        bibs = [athlete.bib for athlete in roster.athletes if athlete.bib]
+        if len(set(bibs)) != len(bibs):
+            raise WorkflowError("Roster contains duplicate bib numbers; correct the roster before analysis")
+        return roster
+
+    @staticmethod
+    def _roster_digest(roster):
+        return hashlib.sha256(roster.model_dump_json().encode()).hexdigest()
+
+    def preview_roster(self, roster_html, roster_url, name_order=NameOrder.AUTO):
+        roster = self._read_roster(roster_html, roster_url, name_order)
+        if not roster.athletes:
+            raise WorkflowError("Choose a roster to preview")
+        return RosterPreview(roster=roster, digest=self._roster_digest(roster))
+
     def import_batch(
-        self, owner_id, name, meet_name, photos, gallery_url, roster_html, roster_url, import_id=None
+        self,
+        owner_id,
+        name,
+        meet_name,
+        photos,
+        gallery_url,
+        roster_html,
+        roster_url,
+        import_id=None,
+        *,
+        name_order=NameOrder.AUTO,
+        roster_digest=None,
+        roster_names=(),
     ) -> Batch:
         limits = effective_settings(self.store, self.settings)
         if import_id:
@@ -121,21 +166,18 @@ class Services:
             except Missing:
                 pass
         roster_url = (roster_url or "").strip() or None
-        if roster_html is not None and roster_url:
-            raise WorkflowError("Choose only one roster source: HTML upload or supported URL")
-        if roster_url:
-            roster_html = self.fetch(roster_url, roster=True)
-        roster = EntryList()
-        if roster_html is not None:
-            try:
-                roster = LeichtathletikDeEntryListParser().parse_content(roster_html.decode("utf-8-sig"))
-            except (ValueError, UnicodeError) as exc:
-                raise WorkflowError("Roster must be supported Competitoroverview or Resultoverview HTML") from exc
-            if not roster.athletes:
-                raise WorkflowError("The roster contains no supported entries")
-        bibs = [athlete.bib for athlete in roster.athletes if athlete.bib]
-        if len(set(bibs)) != len(bibs):
-            raise WorkflowError("Roster contains duplicate bib numbers; correct the roster before analysis")
+        roster = self._read_roster(roster_html, roster_url, name_order)
+        if roster_names and not roster_digest:
+            raise WorkflowError("Preview roster names before correcting them")
+        if roster_digest is not None and roster_digest != self._roster_digest(roster):
+            raise Conflict("Roster changed since the preview; preview roster names again")
+        if len({correction.index for correction in roster_names}) != len(roster_names):
+            raise WorkflowError("Correct each roster name only once")
+        for correction in roster_names:
+            if correction.index >= len(roster.athletes):
+                raise WorkflowError("Choose a valid roster entry")
+            roster.athletes[correction.index].name = correction.name
+            roster.name_parsing[correction.index].needs_review = False
         if gallery_url:
             if photos:
                 raise WorkflowError("Choose either gallery import or uploaded photos")
@@ -320,7 +362,7 @@ class Services:
                     added_manually=True,
                 )
             )
-            self._regenerate_subject_caption(photo)
+            self._regenerate_subject_caption(photo, caption_overrides(self.store, owner_id, session=session)[1])
             photo.conflicts_resolved = False
             photo.changed()
             self.store.save(session, batch)
@@ -338,7 +380,7 @@ class Services:
             if not photo.analysis.record.subjects[subject_index].added_manually:
                 raise Conflict("Only people added manually can be removed with this action")
             photo.analysis.record.subjects.pop(subject_index)
-            self._regenerate_subject_caption(photo)
+            self._regenerate_subject_caption(photo, caption_overrides(self.store, owner_id, session=session)[1])
             photo.conflicts_resolved = False
             photo.changed()
             self.store.save(session, batch)
@@ -353,7 +395,7 @@ class Services:
                 raise Conflict("This photo changed since it was opened; reload before saving")
             fields = patch.model_fields_set
             record = photo.analysis.record if photo.analysis else None
-            identity_fields = {"bib", "athlete_name", "roster_bib", "club"}
+            identity_fields = {"bib", "athlete_name", "roster_bib", "roster_index", "club"}
             corrections = patch.subjects
             if corrections and fields & (identity_fields | {"subject", "face_session_id"}):
                 raise WorkflowError("Use either individual or multiple subject corrections, not both")
@@ -369,16 +411,17 @@ class Services:
             if corrections or "discipline" in fields or patch.use_generated_caption:
                 if record is None:
                     raise Conflict("Analyze the photo before correcting subjects or discipline")
+                _, names = caption_overrides(self.store, owner_id, session=session)
                 for correction in corrections:
                     self._edit_subject(batch, photo, correction)
                 if patch.use_generated_caption:
                     photo.caption_edited = False
                 if corrections:
-                    self._regenerate_subject_caption(photo)
+                    self._regenerate_subject_caption(photo, names)
                 if "discipline" in fields:
-                    self._set_discipline(photo, patch.discipline)
+                    self._set_discipline(photo, patch.discipline, names)
                 elif not corrections:
-                    photo.proposal = record.description = build_description(record)
+                    photo.proposal = record.description = build_description(record, name_overrides=names)
                     if not photo.caption_edited:
                         photo.caption = photo.proposal
             if "caption" in fields:
@@ -390,6 +433,25 @@ class Services:
                 photo.conflicts_resolved = patch.conflicts_resolved
             photo.changed()
             self.store.save(session, batch)
+            return photo
+
+    def refresh_caption_suggestion(self, owner_id, batch_id, photo_id, revision):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            self.store.require_idle(session, owner_id, batch_id)
+            photo = batch.photo(photo_id)
+            if photo.revision != revision:
+                raise Conflict("This photo changed; reload before refreshing its caption suggestion")
+            if photo.analysis is None:
+                raise Conflict("Analyze the photo before generating a caption suggestion")
+            _, names = caption_overrides(self.store, owner_id, session=session)
+            suggestion = build_description(photo.analysis.record, name_overrides=names)
+            if suggestion != photo.proposal or (not photo.caption_edited and suggestion != photo.caption):
+                photo.proposal = photo.analysis.record.description = suggestion
+                if not photo.caption_edited:
+                    photo.caption = suggestion
+                photo.changed()
+                self.store.save(session, batch)
             return photo
 
     def _edit_subject(self, batch, photo, correction):
@@ -406,7 +468,7 @@ class Services:
             if correction.excluded_from_caption is None:
                 raise WorkflowError("Choose whether to include the person in the caption")
             subject.excluded_from_caption = correction.excluded_from_caption
-        if fields & {"bib", "athlete_name", "roster_bib", "club"}:
+        if fields & {"bib", "athlete_name", "roster_bib", "roster_index", "club"}:
             subject.identity_edited = True
         if "bib" in fields:
             subject.bibs = (
@@ -414,7 +476,15 @@ class Services:
             )
             subject.athlete = None
             match_subject(subject, [], batch.roster)
-        if "roster_bib" in fields:
+        if "roster_bib" in fields and "roster_index" in fields:
+            raise WorkflowError("Choose only one roster athlete reference")
+        if "roster_index" in fields:
+            if correction.roster_index is None or not 0 <= correction.roster_index < len(batch.roster.athletes):
+                raise WorkflowError("Choose a person from this batch's roster")
+            subject.athlete = Confident[Athlete](
+                value=batch.roster.athletes[correction.roster_index], confidence=1, source=Source.MANUAL
+            )
+        elif "roster_bib" in fields:
             if not correction.roster_bib:
                 raise WorkflowError("Select a roster athlete")
             athlete = batch.roster.by_bib(correction.roster_bib)
@@ -437,7 +507,7 @@ class Services:
             )
 
     @staticmethod
-    def _set_discipline(photo, discipline):
+    def _set_discipline(photo, discipline, name_overrides=None):
         record = photo.analysis.record
         if not isinstance(record.event, AthleticsEvent):
             raise WorkflowError("This discipline editor supports athletics")
@@ -452,11 +522,11 @@ class Services:
             else None
         )
         record.event.custom_kind = record.event.custom_label = None
-        photo.proposal = record.description = build_description(record)
+        photo.proposal = record.description = build_description(record, name_overrides=name_overrides)
         if not photo.caption_edited:
             photo.caption = photo.proposal
 
-    def _discipline_changes(self, batch, request):
+    def _discipline_changes(self, batch, request, caption_names_revision=None, name_overrides=None):
         ids = [selection.photo_id for selection in request.photos]
         if len(set(ids)) != len(ids):
             raise WorkflowError("Select each photo only once")
@@ -468,7 +538,7 @@ class Services:
             if photo.analysis is None:
                 raise Conflict("Analyze all selected photos before assigning a discipline")
             after = photo.model_copy(deep=True)
-            self._set_discipline(after, request.discipline)
+            self._set_discipline(after, request.discipline, name_overrides)
             before = photo.analysis.record.event.discipline
             changed = after != photo
             changes.append(
@@ -487,20 +557,28 @@ class Services:
             if changed:
                 after.changed()
             updated.append(after)
-        return DisciplinePreview(discipline=request.discipline, photos=changes), updated
+        return DisciplinePreview(
+            discipline=request.discipline, photos=changes, caption_names_revision=caption_names_revision
+        ), updated
 
     def preview_discipline(self, owner_id, batch_id, request):
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
-            preview, _ = self._discipline_changes(batch, request)
+            revision, names = caption_overrides(
+                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+            )
+            preview, _ = self._discipline_changes(batch, request, revision, names)
             return preview
 
     def assign_discipline(self, owner_id, batch_id, request):
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
-            _, updated = self._discipline_changes(batch, request)
+            revision, names = caption_overrides(
+                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+            )
+            _, updated = self._discipline_changes(batch, request, revision, names)
             by_id = {photo.id: photo for photo in updated}
             batch.photos = [by_id.get(photo.id, photo) for photo in batch.photos]
             self.store.save(session, batch)
@@ -552,7 +630,7 @@ class Services:
             self.sessions.finish(owner_id, batch_id)
 
     @staticmethod
-    def _assign_face_name(photo, subject_index, athlete):
+    def _assign_face_name(photo, subject_index, athlete, name_overrides=None):
         record = photo.analysis.record
         record.subjects[subject_index].athlete = Confident[Athlete](
             value=athlete.model_copy(deep=True),
@@ -561,17 +639,17 @@ class Services:
             note="Name confirmed from a matching face in this batch",
         )
         record.subjects[subject_index].identity_edited = True
-        Services._regenerate_subject_caption(photo)
+        Services._regenerate_subject_caption(photo, name_overrides)
 
     @staticmethod
-    def _regenerate_subject_caption(photo):
+    def _regenerate_subject_caption(photo, name_overrides=None):
         record = photo.analysis.record
         if record.event.discipline is not None and record.event.discipline.source is not Source.MANUAL:
             record.event = get(record.sport).new_event()
         record.event = get(record.sport).resolve(
             record.event, [subject for subject in record.subjects if not subject.excluded_from_caption]
         )
-        photo.proposal = record.description = build_description(record)
+        photo.proposal = record.description = build_description(record, name_overrides=name_overrides)
         if not photo.caption_edited:
             photo.caption = photo.proposal
 
@@ -585,7 +663,7 @@ class Services:
         ]
         return strong & trusted, warnings
 
-    def _propagation_preview(self, batch, request):
+    def _propagation_preview(self, batch, request, caption_names_revision=None, name_overrides=None):
         data = self.sessions.get(batch.album.owner_id, batch.album.id)
         source = batch.photo(request.source.photo_id)
         if source.revision != request.source.revision:
@@ -665,7 +743,7 @@ class Services:
                     state = "blocked"
                 proposed = photo.model_copy(deep=True)
                 if reason is None:
-                    self._assign_face_name(proposed, index, identity.value)
+                    self._assign_face_name(proposed, index, identity.value, name_overrides)
                 candidates.append(
                     PropagationCandidate(
                         target=FaceTarget(photo_id=photo.id, revision=photo.revision, subject=index),
@@ -689,19 +767,26 @@ class Services:
             candidates=candidates,
             expires_at=data["expires_at"],
             warnings=[f"Source photo: {warning}" for warning in source_warnings],
+            caption_names_revision=caption_names_revision,
         )
 
     def preview_propagation(self, owner_id, batch_id, request):
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
-            return self._propagation_preview(batch, request)
+            revision, names = caption_overrides(
+                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+            )
+            return self._propagation_preview(batch, request, revision, names)
 
     def propagate(self, owner_id, batch_id, request):
         with self.store.transaction(owner_id) as session:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
-            preview = self._propagation_preview(batch, request)
+            revision, names = caption_overrides(
+                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+            )
+            preview = self._propagation_preview(batch, request, revision, names)
             candidates = {(c.target.photo_id, c.target.subject): c for c in preview.candidates}
             keys = [(target.photo_id, target.subject) for target in request.targets]
             if len(set(keys)) != len(keys):
@@ -724,7 +809,7 @@ class Services:
             for target in request.targets:
                 photo = batch.photo(target.photo_id)
                 before.setdefault(photo.id, photo.model_dump(mode="json"))
-                self._assign_face_name(photo, target.subject, athlete)
+                self._assign_face_name(photo, target.subject, athlete, names)
                 photo.conflicts_resolved = False
                 changed[photo.id] = photo
             for photo in changed.values():
@@ -764,7 +849,7 @@ class Services:
             return list(restored.values())
 
     @staticmethod
-    def merge_analysis(batch: Batch, results: dict[UUID, AnalysisDocument]):
+    def merge_analysis(batch: Batch, results: dict[UUID, AnalysisDocument], name_overrides=None):
         retained = set()
         for photo in batch.photos:
             result = results[photo.id]
@@ -784,6 +869,8 @@ class Services:
                     result = AnalysisDocument(record=previous.model_copy(deep=True))
                     retained.add(photo.id)
             photo.analysis = result
+            if name_overrides is not None:
+                result.record.description = build_description(result.record, name_overrides=name_overrides)
             photo.proposal = result.record.description
             if not photo.caption_edited:
                 photo.caption = photo.proposal

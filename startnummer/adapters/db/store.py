@@ -34,14 +34,14 @@ class Store:
 
     def save_settings(self, owner_id, revision, document):
         with self.transaction(owner_id) as session:
-            current, _ = self.runtime_settings(owner_id, session=session)
+            current, previous = self.runtime_settings(owner_id, session=session)
             if current != revision:
                 raise Conflict("Settings changed; refresh before saving again")
             row = session.get(SettingsRow, owner_id)
             if row is None:
                 row = SettingsRow(owner_id=owner_id)
                 session.add(row)
-            row.revision, row.document = current + 1, document
+            row.revision, row.document = current + 1, {**previous, **document}
             return row.revision
 
     def installation_settings(self, fallback_owner_id, *, session=None):

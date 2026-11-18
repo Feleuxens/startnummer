@@ -1,5 +1,7 @@
 """Captions with German/English discipline phrases and optional meet context."""
 
+from collections.abc import Mapping
+
 from startnummer.core.enums import Lang, Source
 from startnummer.core.models import Athlete, Subject
 from startnummer.core.record import AnalysisRecord
@@ -28,9 +30,14 @@ def _named_athletes(subjects: list[Subject], min_confidence: float) -> list[Athl
     return athletes
 
 
-def _person(athlete: Athlete) -> str:
+def caption_name_key(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def _person(athlete: Athlete, name_overrides: Mapping[str, str]) -> str:
+    name = name_overrides.get(caption_name_key(athlete.name), athlete.name).strip()
     details = ", ".join(value for value in (athlete.bib, athlete.club) if value)
-    return f"{athlete.name} ({details})" if details else athlete.name.strip()
+    return f"{name} ({details})" if details else name
 
 
 def _join(parts: list[str], conjunction: str) -> str:
@@ -39,7 +46,12 @@ def _join(parts: list[str], conjunction: str) -> str:
     return f"{', '.join(parts[:-1])} {conjunction} {parts[-1]}"
 
 
-def build_description(record: AnalysisRecord, *, min_confidence: float = DEFAULT_MIN_CONFIDENCE) -> str | None:
+def build_description(
+    record: AnalysisRecord,
+    *,
+    min_confidence: float = DEFAULT_MIN_CONFIDENCE,
+    name_overrides: Mapping[str, str] | None = None,
+) -> str | None:
     """Build a caption from athlete names, DE/EN discipline phrases, and meet name.
 
     Omit unknown disciplines. Return None when no included athlete meets the confidence
@@ -51,7 +63,7 @@ def build_description(record: AnalysisRecord, *, min_confidence: float = DEFAULT
 
     module = get(record.sport)
 
-    people = _join([_person(athlete) for athlete in athletes], "&")
+    people = _join([_person(athlete, name_overrides or {}) for athlete in athletes], "&")
     phrases = [phrase for lang in (Lang.DE, Lang.EN) if (phrase := module.discipline_phrase(record.event, lang))]
     caption = f"{people} {'/'.join(phrases)}" if phrases else people
     meet_name = (record.meet_name or "").strip()

@@ -4,15 +4,24 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from startnummer.core.enums import NameOrder
 from startnummer.core.models import Athlete
 from startnummer.core.record import AnalysisRecord
 from startnummer.core.sports import Event
 from startnummer.core.types import FaceDetection, OcrResult, PersonDetection
 
 
+class RosterName(BaseModel):
+    source_name: str
+    order: NameOrder
+    needs_review: bool = False
+
+
 class EntryList(BaseModel):
     competition: str | None = None
     athletes: list[Athlete] = Field(default_factory=list)
+    name_order: NameOrder = NameOrder.AUTO
+    name_parsing: list[RosterName] = Field(default_factory=list)
 
     def by_bib(self, bib: str) -> Athlete | None:
         return next((a for a in self.athletes if a.bib == bib), None)

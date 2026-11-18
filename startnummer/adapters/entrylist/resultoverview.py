@@ -4,6 +4,9 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
+from startnummer.adapters.entrylist.names import parse_name
+from startnummer.core.enums import NameOrder
+from startnummer.core.interfaces import RosterName
 from startnummer.core.models import Athlete
 from startnummer.core.sports.athletics import AthleticsDiscipline
 
@@ -32,14 +35,6 @@ def _text(column: Tag, line: str) -> str:
     return " ".join(element.get_text(" ", strip=True).split()) if element else ""
 
 
-def _name(raw: str) -> str:
-    if "," in raw:
-        last, _, first = raw.partition(",")
-        return f"{first.strip()} {last.strip()}".strip()
-    words = raw.split()
-    return " ".join(words[1:] + words[:1])
-
-
 def _identity(athlete: Athlete) -> tuple[str, str, int | None]:
     return athlete.name.casefold(), (athlete.club or "").casefold(), athlete.year_birth
 
@@ -49,7 +44,7 @@ def _add_event(athlete: Athlete, discipline: AthleticsDiscipline | None) -> None
         athlete.entered_events.append(discipline.value)
 
 
-def _relay_members(raw: str, club: str) -> list[Athlete]:
+def _relay_members(raw: str, club: str, name_order: NameOrder) -> list[tuple[Athlete, RosterName]]:
     members = []
     for part in raw.split(";"):
         if not part.strip():
@@ -57,17 +52,21 @@ def _relay_members(raw: str, club: str) -> list[Athlete]:
         match = re.fullmatch(r"(.+?,.+?)\s*\((\d{4})\)", part.strip())
         if match is None:
             raise ValueError("Malformed Resultoverview relay members")
-        members.append(Athlete(name=_name(match[1]), club=club, year_birth=int(match[2])))
+        name, details = parse_name(match[1], name_order)
+        members.append((Athlete(name=name, club=club, year_birth=int(match[2])), details))
     if not members:
         raise ValueError("Resultoverview relay has no named members")
     return members
 
 
-def parse_results(html: BeautifulSoup) -> list[Athlete]:
+def parse_results(
+    html: BeautifulSoup, *, name_order: NameOrder = NameOrder.AUTO
+) -> tuple[list[Athlete], list[RosterName]]:
     athletes: list[Athlete] = []
+    names: dict[int, RosterName] = {}
     by_bib: dict[str, Athlete] = {}
     without_bib: dict[tuple[str, str, int | None], Athlete] = {}
-    relays: list[tuple[Athlete, AthleticsDiscipline | None]] = []
+    relays: list[tuple[Athlete, RosterName, AthleticsDiscipline | None]] = []
     discipline = None
     relay = False
     for row in html.select(".listheader, .entryline"):
@@ -88,11 +87,14 @@ def parse_results(html: BeautifulSoup) -> list[Athlete]:
         if not raw_name:
             raise ValueError("Resultoverview entry has no name")
         if relay and not year:
-            relays.extend((member, discipline) for member in _relay_members(club, raw_name))
+            relays.extend(
+                (member, details, discipline) for member, details in _relay_members(club, raw_name, name_order)
+            )
             continue
         if (bib and not bib.isdecimal()) or (year and not re.fullmatch(r"\d{4}", year)):
             raise ValueError("Invalid Resultoverview bib or birth year")
-        athlete = Athlete(name=_name(raw_name), bib=bib, club=club or None, year_birth=int(year) if year else None)
+        name, details = parse_name(raw_name, name_order)
+        athlete = Athlete(name=name, bib=bib, club=club or None, year_birth=int(year) if year else None)
         existing = by_bib.get(bib) if bib else without_bib.get(_identity(athlete))
         if existing is not None:
             if _identity(existing) != _identity(athlete):
@@ -101,13 +103,14 @@ def parse_results(html: BeautifulSoup) -> list[Athlete]:
             continue
         _add_event(athlete, discipline)
         athletes.append(athlete)
+        names[id(athlete)] = details
         if bib:
             by_bib[bib] = athlete
         else:
             without_bib[_identity(athlete)] = athlete
 
     clubs = {athlete.club for athlete in athletes if athlete.club}
-    for member, event in relays:
+    for member, details, event in relays:
         # Relay headings can append a team number. Remove it only when the page
         # also contains exactly one matching club name on an individual result.
         if member.club not in clubs:
@@ -121,7 +124,8 @@ def parse_results(html: BeautifulSoup) -> list[Athlete]:
             existing = without_bib.get(_identity(member))
             if existing is None:
                 athletes.append(member)
+                names[id(member)] = details
                 without_bib[_identity(member)] = member
                 existing = member
             _add_event(existing, event)
-    return athletes
+    return athletes, [names[id(athlete)] for athlete in athletes]

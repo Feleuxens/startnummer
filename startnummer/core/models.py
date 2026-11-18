@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import NamedTuple, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from startnummer.core.enums import Source
 
@@ -33,6 +33,20 @@ class Athlete(BaseModel):
     # Canonical slugs such as "100m" or "long_jump", interpreted by each sport.
     entered_events: list[str] = Field(default_factory=list)
     athlete_id: UUID | None = None  # optional roster identity
+
+
+class CaptionNameOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_name: str = Field(min_length=1, max_length=200)
+    caption_name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("source_name", "caption_name")
+    @classmethod
+    def trim_name(cls, value):
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Enter a full name")
+        return value
 
 
 class Subject(BaseModel):

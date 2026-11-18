@@ -12,10 +12,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from startnummer.adapters.db.schema import Base, JobRow
 from startnummer.app.contracts import Administration, RuntimeSettings, WorkerHealth
 
+RUNTIME_FIELDS = {"max_file_bytes", "max_batch_bytes", "session_ttl"}
+
 
 def effective_settings(store, settings):
     _, document = store.installation_settings(settings.owner_id)
-    return replace(settings, **document)
+    return replace(settings, **{key: value for key, value in document.items() if key in RUNTIME_FIELDS})
 
 
 def runtime_settings(store, settings, *, owner_id=None, session=None):
@@ -26,7 +28,7 @@ def runtime_settings(store, settings, *, owner_id=None, session=None):
             "max_file_bytes": settings.max_file_bytes,
             "max_batch_bytes": settings.max_batch_bytes,
             "session_ttl": settings.session_ttl,
-            **document,
+            **{key: value for key, value in document.items() if key in RUNTIME_FIELDS},
         },
     )
 

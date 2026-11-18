@@ -4,7 +4,9 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from startnummer.adapters.entrylist.names import parse_name
 from startnummer.adapters.entrylist.resultoverview import parse_results
+from startnummer.core.enums import NameOrder
 from startnummer.core.interfaces import EntryList
 from startnummer.core.models import Athlete
 from startnummer.core.sports.athletics import AthleticsDiscipline
@@ -52,15 +54,6 @@ DISCIPLINE_ABBREVIATIONS: dict[str, AthleticsDiscipline] = {
 }
 
 
-def _reorder_name(raw: str) -> str:
-    # "Lastname, Firstname" -> "Firstname Lastname"; anything without a comma
-    # (some u12 rows) passes through unchanged.
-    if "," in raw:
-        last, _, first = raw.partition(",")
-        return f"{first.strip()} {last.strip()}".strip()
-    return " ".join(raw.split())
-
-
 def _map_discipline(abbreviation: str, mapping: dict[str, AthleticsDiscipline]) -> AthleticsDiscipline:
     return mapping.get(abbreviation.strip(), AthleticsDiscipline.OTHER)
 
@@ -69,9 +62,9 @@ class LeichtathletikDeEntryListParser:
     def __init__(self, abbreviations: dict[str, AthleticsDiscipline] | None = None) -> None:
         self._abbreviations = abbreviations or DISCIPLINE_ABBREVIATIONS
 
-    def parse(self, source: str) -> EntryList:
+    def parse(self, source: str, *, name_order: NameOrder = NameOrder.AUTO) -> EntryList:
         html = self._load(source)
-        return self._parse_html(html)
+        return self.parse_content(html, name_order=name_order)
 
     def _load(self, source: str) -> str:
         if source.lstrip().startswith("<"):
@@ -90,14 +83,14 @@ class LeichtathletikDeEntryListParser:
     def _parse_html(self, raw_html: str) -> EntryList:
         return self.parse_content(raw_html)
 
-    def parse_content(self, raw_html: str) -> EntryList:
+    def parse_content(self, raw_html: str, *, name_order: NameOrder = NameOrder.AUTO) -> EntryList:
         """Parse already-fetched HTML; transport belongs to the app boundary."""
-        table = EntryList()
+        table = EntryList(name_order=name_order)
         try:
             html = BeautifulSoup(raw_html, features="html.parser")
             table.competition = ""
             if html.select_one(".listheader, .entryline > .col-3") is not None:
-                table.athletes = parse_results(html)
+                table.athletes, table.name_parsing = parse_results(html, name_order=name_order)
                 return table
             entries = html.find_all("div", {"class": "entryline"})
             for entry in entries:
@@ -105,14 +98,11 @@ class LeichtathletikDeEntryListParser:
                 if len(divs) < 9:
                     raise ValueError("Malformed Competitoroverview entry row")
                 bib = divs[1].get_text().strip()
-                raw_name = divs[3].get_text().strip().split()
+                raw_name = divs[3].get_text(" ", strip=True)
                 club = divs[4].get_text().strip()
                 year_birth = int(divs[7].get_text().strip()) if divs[7].get_text().strip() else None
 
-                if year_birth:
-                    name = " ".join(raw_name[1:]) + " " + raw_name[0]
-                else:
-                    name = " ".join(raw_name)
+                name, parsed_name = parse_name(raw_name, name_order)
 
                 disciplines: list[AthleticsDiscipline] = []
                 for a in divs[8].find_all("a"):
@@ -121,6 +111,7 @@ class LeichtathletikDeEntryListParser:
 
                 athlete = Athlete(name=name, bib=bib, club=club, year_birth=year_birth, entered_events=disciplines)
                 table.athletes.append(athlete)
+                table.name_parsing.append(parsed_name)
         except (AttributeError, IndexError) as e:
             raise ValueError("Malformed Competitoroverview HTML") from e
 

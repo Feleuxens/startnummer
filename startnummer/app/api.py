@@ -16,11 +16,13 @@ from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import HttpFaceSessions, propagation_problem
 from startnummer.app.account_routes import account_routes
 from startnummer.app.auth import Authentication
+from startnummer.app.captions import caption_preferences
 from startnummer.app.contracts import (
     AddPerson,
     Administration,
     BatchSummary,
     BatchView,
+    CaptionNames,
     ChangePreview,
     CheveretoConnection,
     ConnectionTest,
@@ -36,6 +38,8 @@ from startnummer.app.contracts import (
     PropagationRequest,
     PropagationUndo,
     Revision,
+    RosterNameEdit,
+    RosterPreview,
     RuntimeSettings,
     Selected,
 )
@@ -44,6 +48,7 @@ from startnummer.app.operations import administration, database_healthy, effecti
 from startnummer.app.services import InputPhoto, Services, run
 from startnummer.app.settings import Settings
 from startnummer.core.batch import Batch, Conflict, Job, Missing, Photo, Publication, WorkflowError, WriteResult
+from startnummer.core.enums import NameOrder
 from startnummer.core.errors import BlobNotFound
 from startnummer.core.sports.athletics import AthleticsDiscipline
 
@@ -144,6 +149,19 @@ def create_app(
     def get_administration(user: Admin):
         return administration(store, replace(settings, owner_id=user.id))
 
+    @app.get("/api/account/caption-names", response_model=CaptionNames)
+    def get_caption_names(owner: Owner):
+        return caption_preferences(store, owner)
+
+    @app.put("/api/account/caption-names", response_model=CaptionNames)
+    def save_caption_names(body: CaptionNames, owner: Owner):
+        revision = store.save_settings(
+            owner,
+            body.revision,
+            {"caption_name_overrides": [rule.model_dump() for rule in body.overrides]},
+        )
+        return body.model_copy(update={"revision": revision})
+
     @app.put("/api/admin/settings", response_model=RuntimeSettings)
     def update_settings(body: RuntimeSettings, user: Admin):
         revision = store.save_settings(user.id, body.revision, body.model_dump(exclude={"revision"}))
@@ -176,6 +194,9 @@ def create_app(
             "roster_file",
             "photos",
             "photo_modified",
+            "name_order",
+            "roster_digest",
+            "roster_names",
         }
         if set(form) - allowed:
             raise WorkflowError("Unknown import field; ownership comes from authentication")
@@ -184,6 +205,22 @@ def create_app(
     def list_batches(owner: Owner, service: Service) -> list[dict]:
         store.cleanup(owner, lambda key: run(blobs.delete(owner, key)))
         return store.list_batches(owner)
+
+    def roster_bytes(upload):
+        data = upload.file.read(10 * 1024 * 1024 + 1) if upload else None
+        if data is not None and len(data) > 10 * 1024 * 1024:
+            raise WorkflowError("Roster exceeds the size limit")
+        return data
+
+    @app.post("/api/roster/preview", response_model=RosterPreview)
+    def preview_roster(
+        owner: Owner,
+        service: Service,
+        roster_url: Annotated[str | None, Form()] = None,
+        roster_file: Annotated[UploadFile | None, File()] = None,
+        name_order: Annotated[NameOrder, Form()] = NameOrder.AUTO,
+    ):
+        return service.preview_roster(roster_bytes(roster_file), roster_url, name_order)
 
     @app.post("/api/batches", response_model=Batch, dependencies=[Depends(validate_import_fields)])
     def import_batch(
@@ -197,6 +234,9 @@ def create_app(
         roster_file: Annotated[UploadFile | None, File()] = None,
         photos: Annotated[list[UploadFile] | None, File()] = None,
         photo_modified: Annotated[str | None, Form()] = None,
+        name_order: Annotated[NameOrder, Form()] = NameOrder.AUTO,
+        roster_digest: Annotated[str | None, Form()] = None,
+        roster_names: Annotated[str | None, Form()] = None,
     ):
         limits = effective_settings(store, service.settings)
         inputs = []
@@ -216,12 +256,26 @@ def create_app(
                 raise WorkflowError("Photo modification dates must match uploaded files")
             for photo, date in zip(inputs, dates, strict=True):
                 photo.date_modified = date
-        html = roster_file.file.read(10 * 1024 * 1024 + 1) if roster_file else None
-        if html and len(html) > 10 * 1024 * 1024:
-            raise WorkflowError("Roster exceeds the size limit")
+        html = roster_bytes(roster_file)
+        try:
+            corrections = TypeAdapter(list[RosterNameEdit]).validate_json(roster_names) if roster_names else []
+        except ValidationError as exc:
+            raise WorkflowError("Roster name corrections must contain valid entries and names") from exc
         if gallery_url and service.gallery is None:
             raise HTTPException(403, "Gallery access requires an administrator")
-        return service.import_batch(owner, name, meet_name, inputs, gallery_url, html, roster_url, import_id)
+        return service.import_batch(
+            owner,
+            name,
+            meet_name,
+            inputs,
+            gallery_url,
+            html,
+            roster_url,
+            import_id,
+            name_order=name_order,
+            roster_digest=roster_digest,
+            roster_names=corrections,
+        )
 
     @app.get("/api/batches/{batch_id}", response_model=BatchView)
     def get_batch(batch_id: UUID, owner: Owner, service: Service):
@@ -235,6 +289,10 @@ def create_app(
     @app.post("/api/batches/{batch_id}/photo-dates", response_model=Batch)
     def read_photo_dates(batch_id: UUID, owner: Owner, service: Service):
         return service.read_photo_dates(owner, batch_id)
+
+    @app.post("/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion", response_model=Photo)
+    def refresh_caption_suggestion(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner, service: Service):
+        return service.refresh_caption_suggestion(owner, batch_id, photo_id, body.revision)
 
     @app.delete("/api/batches/{batch_id}")
     def delete_batch(batch_id: UUID, owner: Owner, service: Service) -> dict:

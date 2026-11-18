@@ -13,6 +13,13 @@ class Lang(StrEnum):
     DE = "de"
 
 
+class NameOrder(StrEnum):
+    AUTO = "auto"
+    SURNAME_FIRST = "surname_first"
+    GIVEN_FIRST = "given_first"
+    AS_WRITTEN = "as_written"
+
+
 class Source(StrEnum):
     DETECTOR = "detector"
     OCR = "ocr"
