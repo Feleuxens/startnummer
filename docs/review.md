@@ -32,6 +32,29 @@ Results cover people listed in the published results; some entered athletes may
 be absent. The importer uses only the page you select and does not fetch or merge
 the other overview automatically.
 
+### Check roster names before importing
+
+**Name order** defaults to **Auto**, which checks each name separately. Commas
+and uppercase surname blocks identify the order. An abbreviated surname stays
+abbreviated: `Alex K.` remains `Alex K.`. Uppercase name parts are normalized:
+`EXAMPLE` becomes `Example`, and `VAN EXAMPLE` becomes `van Example`. Hyphens,
+apostrophes, accents, initials, and existing mixed-case spellings are kept.
+The preview retains the original source text; check unusual spellings and correct
+them if needed. Your manual name corrections are saved as entered.
+Mixed-case names without clear evidence assume surname first and are marked
+for review; compound surname particles such as `van` and `de` stay together.
+
+Choose **Surname first**, **Given name first**, or **Keep source order** to override
+automatic detection. Choose **Preview roster names** to compare source and parsed
+names, search the list, and edit individual names. The preview shows twenty entries
+at a time. **Only uncertain automatic names** filters the original uncertain
+choices and keeps corrected rows visible while you edit them.
+
+Name corrections are saved when you import. Changing the source or format clears
+the preview; changing the format asks before discarding name corrections. If a
+URL's roster changes after the preview, import stops: preview it again before
+retrying. Existing saved albums keep their names and captions.
+
 Enter an album name and, if you want it in captions, a meet name. Choose **Import
 and preview**. Check the saved photo count and roster sample before continuing.
 The roster parser leaves the meet name blank, so supply it yourself if needed.
@@ -82,6 +105,7 @@ Select a face or subject, then use **Search roster athletes**. Search by name,
 bib, club, or a combination of terms. Each result shows all three fields.
 Choose an athlete under **Assign roster athlete** and save the correction.
 Searching or pressing Enter alone does not save an assignment.
+Entries without bib numbers are available too; choose them by name and club.
 
 You can also give a detected face a name that is absent from the roster, or work
 without a roster entirely.
@@ -91,6 +115,28 @@ If the person was not detected, choose **Add person from roster**, select the
 athlete, and choose **Add to this photo**. This generates a caption suggestion
 without adding detection evidence and also works before analysis. Use **Remove
 added person** to reverse an accidental addition.
+
+### Override a name in captions
+
+Open **Account → Caption name overrides**, choose **Add name override**, and enter
+the **Full source name** shown in the roster or subject evidence. Enter the
+replacement under **Name in captions**, then choose **Save name overrides**.
+
+Rules are private to your account and reusable across albums. They match the full
+name, ignoring capitalization and extra spaces. They do not match parts of a name
+or chain replacements. Your replacement is used as entered, including its casing.
+Roster names, bibs, matching, and face propagation identities stay unchanged.
+
+New caption suggestions use these rules. Saving a rule leaves existing captions
+and approvals alone. To update an existing photo, save its current edits and choose
+**Refresh caption suggestion**. Generated captions update directly; manually edited
+captions are kept, with the new **Analysis suggestion** available for comparison.
+Choose **Use generated caption** and save when you want to replace manual text.
+Changed suggestions remove approval and need review again. No analysis rerun is
+needed, and the active face session remains available.
+
+Removing a rule affects future generation. Refresh a photo's suggestion to return
+to its matched name. Name overrides are included in your account's backups.
 
 ### Leave background people out of the caption
 

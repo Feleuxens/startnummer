@@ -37,6 +37,14 @@ hide empty roster selectors and explain the next step in the import preview.
 Roster search matches name, bib, and club, including combined terms. Results show
 all three fields. Searching does not save a correction. Keep a pending athlete
 selection visible even when a new search would exclude it.
+Roster choices include people without bibs and use their saved entry index.
+
+The import name preview compares source and parsed names, with twenty entries per
+page, search, and a filter for uncertain automatic decisions. Auto detects each
+name independently; explicit formats override it. Detect order from the original
+text, then normalize uppercase name parts. Preserve surname initials and mixed-case
+spellings, and keep the source text visible. Name corrections stay in the import draft and are
+saved with the batch; changing the format confirms discarding those corrections.
 
 Discipline selection uses contact-sheet checkboxes, Shift-click, and From/Through
 controls. Ranges follow the selected sort within the filter; changing filters clears
@@ -74,6 +82,12 @@ test action; editable connections use an explicit save. Never prefill a saved
 password. Concurrent edits require a reload.
 
 ## Account forms
+
+Caption name overrides belong to each account. Use explicit save and reload
+actions, preserve drafts on errors, and combine their unsaved state with the
+password form's state. Explain that rules affect generated text only. Caption
+refresh is an explicit photo action, disabled with unsaved edits; preserve manual
+captions and offer the updated suggestion before replacement.
 
 Setup, sign-in, and registration share the compact login layout. Account creation
 includes password confirmation and minimum-length guidance; errors stay near the

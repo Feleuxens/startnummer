@@ -9,6 +9,14 @@ export const getFaces = async (batchId: string) =>
     await api.GET('/api/batches/{batch_id}/faces', { params: { path: { batch_id: batchId } } }),
   );
 
+export const refreshCaptionSuggestion = async (batchId: string, photo: Photo) =>
+  unwrap(
+    await api.POST('/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion', {
+      params: { path: { batch_id: batchId, photo_id: photo.id } },
+      body: { revision: photo.revision },
+    }),
+  );
+
 export const readPhotoDates = async (batchId: string) =>
   unwrap(
     await api.POST('/api/batches/{batch_id}/photo-dates', {
@@ -132,6 +140,7 @@ export const propagateNames = async (
         targets,
         acknowledge_unsupported_bibs: acknowledgeWarnings,
         acknowledge_tentative_names: acknowledgeWarnings,
+        caption_names_revision: preview.caption_names_revision,
       },
     }),
   );

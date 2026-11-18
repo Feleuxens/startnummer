@@ -25,12 +25,15 @@ export default function SubjectEditor({
 }) {
   const [query, setQuery] = useState('');
   const hasRoster = !!roster.athletes?.length;
-  const people = (roster.athletes ?? []).filter(
-    (person) => person.bib && matchesRosterQuery(person, query),
-  );
-  const chosen = draft.roster_bib
-    ? roster.athletes?.find((person) => person.bib === draft.roster_bib)
-    : undefined;
+  const people = (roster.athletes ?? [])
+    .map((person, index) => ({ person, index }))
+    .filter(({ person }) => matchesRosterQuery(person, query));
+  const chosenIndex =
+    draft.roster_index ??
+    (draft.roster_bib
+      ? roster.athletes?.findIndex((person) => person.bib === draft.roster_bib)
+      : undefined);
+  const chosen = chosenIndex != null ? roster.athletes?.[chosenIndex] : undefined;
   return (
     <div className="subject-editor">
       <label>
@@ -57,21 +60,31 @@ export default function SubjectEditor({
           <label>
             Assign roster athlete
             <select
-              value={draft.roster_bib ?? ''}
+              value={chosenIndex ?? ''}
               onChange={(event) => {
-                const { athlete_name: _name, club: _club, ...rest } = draft;
-                onChange({ ...rest, roster_bib: event.target.value });
+                const {
+                  athlete_name: _name,
+                  club: _club,
+                  roster_bib: _bib,
+                  roster_index: _index,
+                  ...rest
+                } = draft;
+                onChange(
+                  event.target.value === ''
+                    ? rest
+                    : { ...rest, roster_index: Number(event.target.value) },
+                );
               }}
             >
               <option value="">Choose an athlete</option>
-              {chosen && !people.includes(chosen) && (
+              {chosen && !people.some(({ index }) => index === chosenIndex) && (
                 <optgroup label="Selected athlete">
-                  <option value={chosen.bib ?? ''}>{rosterPersonLabel(chosen)}</option>
+                  <option value={chosenIndex}>{rosterPersonLabel(chosen)}</option>
                 </optgroup>
               )}
-              {people.map((athlete) => (
-                <option key={athlete.bib} value={athlete.bib ?? ''}>
-                  {rosterPersonLabel(athlete)}
+              {people.map(({ person, index }) => (
+                <option key={index} value={index}>
+                  {rosterPersonLabel(person)}
                 </option>
               ))}
             </select>
@@ -85,7 +98,7 @@ export default function SubjectEditor({
           value={draft.athlete_name ?? ''}
           placeholder={hasRoster ? 'Person absent from the roster' : 'Person’s name'}
           onChange={(event) => {
-            const { roster_bib: _bib, ...rest } = draft;
+            const { roster_bib: _bib, roster_index: _index, ...rest } = draft;
             onChange({ ...rest, athlete_name: event.target.value, club: draft.club ?? '' });
           }}
         />

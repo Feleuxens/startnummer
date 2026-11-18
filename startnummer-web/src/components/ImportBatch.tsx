@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import RosterImport from '../features/import/RosterImport';
 
 export default function ImportBatch({
   onImport,
@@ -12,7 +13,7 @@ export default function ImportBatch({
   canUseGallery: boolean;
 }) {
   const [photoSource, setPhotoSource] = useState(canUseGallery ? 'gallery' : 'files');
-  const [rosterSource, setRosterSource] = useState('file');
+  const [rosterBusy, setRosterBusy] = useState(false);
   const [uploadNames, setUploadNames] = useState<string[]>([]);
   const importId = useRef(crypto.randomUUID());
   return (
@@ -95,56 +96,7 @@ export default function ImportBatch({
             </label>
           )}
         </section>
-        <section>
-          <h2>Competition roster</h2>
-          <div className="source-choices">
-            <label>
-              <input
-                type="radio"
-                checked={rosterSource === 'file'}
-                onChange={() => setRosterSource('file')}
-              />{' '}
-              Upload HTML
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={rosterSource === 'url'}
-                onChange={() => setRosterSource('url')}
-              />{' '}
-              Supported URL
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={rosterSource === 'none'}
-                onChange={() => setRosterSource('none')}
-              />{' '}
-              No roster
-            </label>
-          </div>
-          {rosterSource === 'file' ? (
-            <label>
-              Roster HTML
-              <input name="roster_file" type="file" accept=".html,.htm,text/html" required />
-            </label>
-          ) : rosterSource === 'url' ? (
-            <label>
-              Roster URL
-              <input
-                name="roster_url"
-                type="url"
-                placeholder="https://ergebnisse.leichtathletik.de/…"
-                required
-              />
-            </label>
-          ) : null}
-          <small>
-            {rosterSource === 'none'
-              ? 'Name detected people during review, then use face propagation to assign them to matching faces.'
-              : 'Competitoroverview or Resultoverview from ergebnisse.leichtathletik.de.'}
-          </small>
-        </section>
+        <RosterImport busy={busy} onBusyChange={setRosterBusy} />
         <section className="import-details">
           <h2>Batch details</h2>
           <label>
@@ -163,7 +115,7 @@ export default function ImportBatch({
         </section>
         <div className="import-footer">
           <p>Import saves the inputs. You can check the photo count before starting analysis.</p>
-          <button className="primary" disabled={busy}>
+          <button className="primary" disabled={busy || rosterBusy}>
             {busy ? 'Importing…' : 'Import and preview'}
           </button>
         </div>

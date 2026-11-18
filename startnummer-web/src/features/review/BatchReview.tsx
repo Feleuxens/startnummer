@@ -297,6 +297,15 @@ export default function BatchReview({
                       `Approval removed for ${selected.display_name}.`,
                     )
                   }
+                  onRefreshSuggestion={() =>
+                    action(async () => {
+                      changes.requireSaved(
+                        'Save current edits before refreshing the caption suggestion.',
+                      );
+                      await reviewApi.refreshCaptionSuggestion(batchId, selected);
+                      await refresh();
+                    }, 'Caption suggestion refreshed. Manually edited captions were kept.')
+                  }
                   onFindMatches={(index) => action(() => findMatches(selected, index))}
                   onAddPerson={(rosterIndex) =>
                     action(async () => {

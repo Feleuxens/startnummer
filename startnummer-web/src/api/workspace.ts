@@ -20,6 +20,14 @@ export const importBatch = async (form: FormData) =>
     }),
   );
 
+export const previewRoster = async (form: FormData) =>
+  unwrap(
+    await api.POST('/api/roster/preview', {
+      body: form as never,
+      bodySerializer: (body) => body as unknown as FormData,
+    }),
+  );
+
 export const authStatus = async () => unwrap(await api.GET('/api/auth/status'));
 export const register = async (body: { username: string; password: string; invitation?: string }) =>
   unwrap(await api.POST('/api/auth/register', { body }));

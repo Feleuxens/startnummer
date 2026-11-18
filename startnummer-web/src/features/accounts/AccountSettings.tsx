@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { api, message, unwrap } from '../../api/client';
+import CaptionNames from './CaptionNames';
 
 export default function AccountSettings({
   onDirty,
@@ -14,6 +15,11 @@ export default function AccountSettings({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const alive = useRef(true);
+  const dirtyPanels = useRef({ password: false, names: false });
+  function panelDirty(panel: 'password' | 'names', value: boolean) {
+    dirtyPanels.current[panel] = value;
+    onDirty(Object.values(dirtyPanels.current).some(Boolean));
+  }
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -23,6 +29,7 @@ export default function AccountSettings({
   return (
     <div className="administration account-settings">
       <h1>Account</h1>
+      <CaptionNames disabled={busy} onDirty={(value) => panelDirty('names', value)} />
       <section aria-labelledby="password-title">
         <h2 id="password-title">Change password</h2>
         <p>
@@ -30,7 +37,7 @@ export default function AccountSettings({
           photos and captions stay available.
         </p>
         <form
-          onChange={() => onDirty(true)}
+          onChange={() => panelDirty('password', true)}
           onSubmit={async (event) => {
             event.preventDefault();
             const form = event.currentTarget;
@@ -60,7 +67,7 @@ export default function AccountSettings({
               if (!alive.current) return;
               onSessionsCleared();
               form.reset();
-              onDirty(false);
+              panelDirty('password', false);
               setNotice('Password changed. Other sessions have been signed out.');
             } catch (failure) {
               if (alive.current) setError(message(failure));

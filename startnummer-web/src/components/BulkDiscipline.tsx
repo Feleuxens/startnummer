@@ -37,7 +37,8 @@ export default function BulkDiscipline({
     setBusy(true);
     setError('');
     try {
-      if (apply) await onApply(request());
+      if (apply)
+        await onApply({ ...request(), caption_names_revision: preview?.caption_names_revision });
       else setPreview(await onPreview(request()));
     } catch (failure) {
       setError(message(failure));

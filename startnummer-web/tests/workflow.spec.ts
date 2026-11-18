@@ -12,6 +12,247 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();
 }
 
+test('preview name order, keep surname initials, override formats, and correct an imported name', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL').fill('http://gallery.test/album/a');
+  const names = [
+    'EXAMPLE Alex',
+    'Sam OTHER',
+    'Jordan K.',
+    'Van Example Robin',
+    ...Array.from({ length: 20 }, (_, index) => `EXAMPLE${index} Morgan`),
+  ];
+  const roster = names
+    .map((name, index) =>
+      html.replace('<div>12</div>', `<div>${index + 12}</div>`).replace('Example Alex', name),
+    )
+    .join('');
+  await page
+    .getByLabel('Roster HTML')
+    .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(roster) });
+  const order = page.getByRole('combobox', { name: 'Name order', exact: true });
+  await expect(order).toHaveValue('auto');
+  await page.getByRole('button', { name: 'Preview roster names', exact: true }).click();
+  const name = (index: number) =>
+    page.getByRole('textbox', { name: `Parsed name for roster person ${index}`, exact: true });
+  await expect(name(1)).toHaveValue('Alex Example');
+  await expect(
+    page.locator('.roster-name-list').getByText('EXAMPLE Alex', { exact: true }),
+  ).toBeVisible();
+  await expect(name(2)).toHaveValue('Sam Other');
+  await expect(name(3)).toHaveValue('Jordan K.');
+  await expect(name(4)).toHaveValue('Robin Van Example');
+  await page.getByLabel('Only uncertain automatic names', { exact: true }).check();
+  await expect(page.locator('.roster-name-list li')).toHaveCount(1);
+  await name(4).fill('Robin Preview');
+  await expect(name(4)).toHaveValue('Robin Preview');
+  await page.getByLabel('Only uncertain automatic names', { exact: true }).uncheck();
+  await expect(page.locator('.roster-name-list li')).toHaveCount(20);
+  await page.getByRole('button', { name: 'Next names', exact: true }).click();
+  await expect(page.locator('.roster-name-list li')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Previous names', exact: true }).click();
+  await name(4).fill('Robin Corrected');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await order.selectOption('surname_first');
+  await expect(order).toHaveValue('auto');
+  await expect(name(4)).toHaveValue('Robin Corrected');
+  page.once('dialog', (dialog) => dialog.accept());
+  await order.selectOption('surname_first');
+  await expect(name(1)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Preview roster names', exact: true }).click();
+  await expect(name(2)).toHaveValue('Other Sam');
+  await order.selectOption('as_written');
+  await page.getByRole('button', { name: 'Preview roster names', exact: true }).click();
+  await expect(name(1)).toHaveValue('Example Alex');
+  await order.selectOption('auto');
+  await page.getByRole('button', { name: 'Preview roster names', exact: true }).click();
+  await expect(name(1)).toHaveValue('Alex Example');
+  await name(4).fill('Robin Corrected');
+  await page.getByLabel('Search roster names', { exact: true }).fill('Robin');
+  await page
+    .locator('.roster-preview-section')
+    .screenshot({ path: test.info().outputPath('roster-names-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .locator('.roster-preview-section')
+    .screenshot({ path: test.info().outputPath('roster-names-mobile.png') });
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+  await expect(page.getByRole('heading', { name: 'Ready to analyze', exact: true })).toBeVisible();
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const batch = (await (await page.request.get(`/api/batches/${batchId}`)).json()).batch;
+  expect(batch.roster.athletes[3].name).toBe('Robin Corrected');
+  expect(batch.roster.name_parsing[3].source_name).toBe('Van Example Robin');
+  expect(batch.roster.athletes[2].name).toBe('Jordan K.');
+  await page.reload();
+  expect((await (await page.request.get(`/api/batches/${batchId}`)).json()).batch.roster).toEqual(
+    batch.roster,
+  );
+});
+
+test('preview URL name formats and discard a preview after changing the source', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Supported URL', { exact: true }).check();
+  await page.getByLabel('Roster URL').fill('https://roster.test/Competitions/Resultoverview/1');
+  await page.getByLabel('Name order', { exact: true }).selectOption('given_first');
+  await page.getByRole('button', { name: 'Preview roster names', exact: true }).click();
+  await expect(page.getByLabel('Parsed name for roster person 1', { exact: true })).toHaveValue(
+    'Example Alex',
+  );
+  await page.getByLabel('No roster', { exact: true }).check();
+  await expect(page.getByLabel('Parsed name for roster person 1', { exact: true })).toHaveCount(0);
+  await expect(page.locator('input[name="roster_digest"]')).toHaveCount(0);
+});
+
+test('assign a roster athlete without a bib and propagate the saved identity', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL').fill('http://gallery.test/album/a');
+  const roster = ['OTHER Sam', 'EXAMPLE Alex']
+    .map((name) => html.replace('<div>12</div>', '<div></div>').replace('Example Alex', name))
+    .join('');
+  await page
+    .getByLabel('Roster HTML')
+    .setInputFiles({ name: 'roster.html', mimeType: 'text/html', buffer: Buffer.from(roster) });
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+  await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Name detected face 1' })).toBeEnabled({
+    timeout: 15000,
+  });
+  await page.getByRole('button', { name: 'Name detected face 1' }).click();
+  await page.getByLabel('Search roster athletes', { exact: true }).fill('Sam');
+  const assign = page.getByRole('combobox', { name: 'Assign roster athlete', exact: true });
+  await expect(assign.getByRole('option')).toHaveCount(2);
+  await assign.selectOption('0');
+  await page.getByLabel('Search roster athletes', { exact: true }).fill('Alex');
+  await expect(assign).toHaveValue('0');
+  await expect(assign.locator('optgroup')).toContainText('Sam Other');
+  await page.getByRole('button', { name: 'Save caption and corrections' }).click();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue(/Sam Other/);
+  await page.getByRole('button', { name: 'Find matching faces…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Assign Sam Other to matching faces?' });
+  await dialog
+    .getByLabel('I checked the selected faces and proposed changes despite the warnings')
+    .check();
+  await dialog.getByRole('button', { name: 'Assign name to 1 selected photo' }).click();
+  await expect(dialog).toHaveCount(0);
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const batch = (await (await page.request.get(`/api/batches/${batchId}`)).json()).batch;
+  expect(
+    batch.photos.every(
+      (photo: components['schemas']['Photo']) =>
+        photo.analysis?.record.subjects[0]?.athlete?.value.name === 'Sam Other',
+    ),
+  ).toBe(true);
+  expect(batch.roster.athletes[0].bib).toBe('');
+});
+
+test('save private caption names, refresh suggestions, and preserve manual text and face review', async ({
+  page,
+}) => {
+  const batchId = await openAnalyzedGallery(page, 'Caption overrides');
+  const read = async (): Promise<components['schemas']['BatchView']> =>
+    (await page.request.get(`/api/batches/${batchId}`)).json();
+  const originalCaption = (await read()).batch.photos[0]!.caption!;
+  await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
+  await page.getByRole('button', { name: 'Next photo', exact: true }).click();
+  await page.getByLabel('Reviewed caption').fill('Keep my manually edited caption');
+  await page.getByRole('button', { name: 'Save caption and corrections', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Save caption and corrections', exact: true }),
+  ).toBeDisabled();
+  const before = (await read()).batch;
+  await page.getByRole('button', { name: 'Account', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Caption name overrides', exact: true });
+  await panel.getByRole('button', { name: 'Add name override', exact: true }).click();
+  await panel.getByLabel('Full source name 1', { exact: true }).fill('Alex Example');
+  await panel.getByLabel('Name in captions 1', { exact: true }).fill('Alex van Example');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.getByRole('button', { name: /^Saved albums/ }).click();
+  await expect(page.getByRole('heading', { name: 'Account', exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'Save name overrides', exact: true }).click();
+  await expect(panel.getByRole('status')).toContainText('Existing captions were kept');
+  expect((await read()).batch).toEqual(before);
+  const preferences = await (await page.request.get('/api/account/caption-names')).json();
+  expect(
+    (
+      await page.request.put('/api/account/caption-names', {
+        headers: { 'X-Requested-With': 'Startnummer' },
+        data: preferences,
+      })
+    ).ok(),
+  ).toBe(true);
+  await panel.getByLabel('Name in captions 1', { exact: true }).fill('Another draft');
+  await panel.getByRole('button', { name: 'Save name overrides', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('Settings changed');
+  await expect(panel.getByLabel('Name in captions 1', { exact: true })).toHaveValue(
+    'Another draft',
+  );
+  page.once('dialog', (dialog) => dialog.accept());
+  await panel.getByRole('button', { name: 'Reload name overrides', exact: true }).click();
+  await expect(panel.getByLabel('Name in captions 1', { exact: true })).toHaveValue(
+    'Alex van Example',
+  );
+  await panel.screenshot({ path: test.info().outputPath('caption-names-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await panel.screenshot({ path: test.info().outputPath('caption-names-mobile.png') });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: /^Saved albums/ }).click();
+  await page
+    .getByRole('button')
+    .filter({ has: page.getByRole('heading', { name: 'Caption overrides', exact: true }) })
+    .click();
+  const caption = page.getByLabel('Reviewed caption');
+  await expect(caption).toHaveValue(originalCaption);
+  const refresh = page.getByRole('button', { name: 'Refresh caption suggestion', exact: true });
+  await refresh.click();
+  await expect(caption).toHaveValue(originalCaption.replace('Alex Example', 'Alex van Example'));
+  await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Name detected face 1', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Next photo', exact: true }).click();
+  await expect(caption).toHaveValue('Keep my manually edited caption');
+  await refresh.click();
+  await expect(caption).toHaveValue('Keep my manually edited caption');
+  await expect(
+    page.locator('details').filter({ has: page.getByText('Analysis suggestion', { exact: true }) }),
+  ).toContainText('Alex van Example');
+  await page.getByRole('button', { name: 'Use generated caption', exact: true }).click();
+  await page.getByRole('button', { name: 'Save caption and corrections', exact: true }).click();
+  await expect(caption).toHaveValue(/Alex van Example/);
+  expect((await read()).batch.roster.athletes![0]!.name).toBe('Alex Example');
+  expect(
+    (await read()).batch.photos.every(
+      (photo) => photo.analysis?.record.subjects[0]?.athlete?.value.name === 'Alex Example',
+    ),
+  ).toBe(true);
+  await page
+    .getByRole('button', { name: 'Save review and finish face session', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Name detected face 1', exact: true })).toHaveCount(
+    0,
+  );
+  const latest = await (await page.request.get('/api/account/caption-names')).json();
+  expect(
+    (
+      await page.request.put('/api/account/caption-names', {
+        headers: { 'X-Requested-With': 'Startnummer' },
+        data: { revision: latest.revision, overrides: [] },
+      })
+    ).ok(),
+  ).toBe(true);
+  await refresh.click();
+  await expect(caption).toHaveValue(originalCaption);
+});
+
 test('administrator sees service status and saves revision-checked settings', async ({ page }) => {
   await login(page);
   await expect(
@@ -341,13 +582,13 @@ test('search face assignments by bib, name, and club without changing the saved 
   expect((await read()).batch.photos).toEqual(before);
 
   await search.fill('77 riverside');
-  await assign.selectOption('77');
+  await assign.selectOption('1');
   await expect(save).toBeEnabled();
   await search.fill('Hill');
-  await expect(assign).toHaveValue('77');
+  await expect(assign).toHaveValue('1');
   await expect(assign.locator('optgroup[label="Selected athlete"]')).toContainText('Terry North');
   await search.fill('missing club');
-  await expect(assign).toHaveValue('77');
+  await expect(assign).toHaveValue('1');
   await expect(
     page.getByText('No roster athletes match this search.', { exact: true }),
   ).toBeVisible();
@@ -1421,7 +1662,7 @@ test('edit several people and exclude a background person in one atomic save', a
   await page.getByRole('searchbox', { name: 'Search roster athletes', exact: true }).fill('Jordan');
   await page
     .getByRole('combobox', { name: 'Assign roster athlete', exact: true })
-    .selectOption('78');
+    .selectOption('2');
   await page.getByLabel('Club (optional)', { exact: true }).fill('Changed Club');
   await page.locator('.subject-choice').nth(1).locator('.subject-row').click();
   await expect(page.getByLabel('Or enter a name', { exact: true })).toHaveValue('Visitor Example');
@@ -1446,7 +1687,7 @@ test('edit several people and exclude a background person in one atomic save', a
   await expect(page.getByLabel('Correct bib', { exact: true })).toHaveValue('78');
   await expect(
     page.getByRole('combobox', { name: 'Assign roster athlete', exact: true }),
-  ).toHaveValue('78');
+  ).toHaveValue('2');
   await expect(page.getByLabel('Club (optional)', { exact: true })).toHaveValue('Changed Club');
   await expect(
     page.getByRole('searchbox', { name: 'Search roster athletes', exact: true }),

@@ -18,6 +18,7 @@ export default function PhotoEditor({
   onSave,
   onApprove,
   onUnapprove,
+  onRefreshSuggestion,
   onFindMatches,
   onAddPerson,
   onRemovePerson,
@@ -33,6 +34,7 @@ export default function PhotoEditor({
   onSave: (patch: Edit) => Promise<void>;
   onApprove: () => Promise<void>;
   onUnapprove: () => Promise<void>;
+  onRefreshSuggestion: () => Promise<void>;
   onFindMatches: (subject: number) => Promise<void>;
   onAddPerson: (rosterIndex: number) => Promise<void>;
   onRemovePerson: (subject: number) => Promise<void>;
@@ -77,7 +79,7 @@ export default function PhotoEditor({
       ...patch,
       subjects: Object.entries(subjectEdits).map(([key, draft]) => {
         const index = Number(key);
-        const identityChanged = ['athlete_name', 'roster_bib', 'bib', 'club'].some(
+        const identityChanged = ['athlete_name', 'roster_bib', 'roster_index', 'bib', 'club'].some(
           (key) => key in draft,
         );
         return {
@@ -120,6 +122,16 @@ export default function PhotoEditor({
             />
           </label>
         </div>
+        {record && (
+          <button
+            type="button"
+            className="refresh-caption"
+            disabled={busy || dirty}
+            onClick={() => void onRefreshSuggestion()}
+          >
+            Refresh caption suggestion
+          </button>
+        )}
         {record && ((photo.proposal ?? '') !== caption || photo.caption_edited) && (
           <details open={photo.caption_edited}>
             <summary>Analysis suggestion</summary>
@@ -224,9 +236,12 @@ export default function PhotoEditor({
           {subjects.map((item, index) => {
             const draft = subjectEdits[index];
             const excluded = draft?.excluded_from_caption ?? item.excluded_from_caption;
-            const chosen = draft?.roster_bib
-              ? roster.athletes?.find((person) => person.bib === draft.roster_bib)
-              : undefined;
+            const chosen =
+              draft?.roster_index != null
+                ? roster.athletes?.[draft.roster_index]
+                : draft?.roster_bib
+                  ? roster.athletes?.find((person) => person.bib === draft.roster_bib)
+                  : undefined;
             const name =
               draft?.athlete_name || chosen?.name || item.athlete?.value.name || 'Name not matched';
             return (
