@@ -47,6 +47,7 @@ from startnummer.app.integrations import Integrations
 from startnummer.app.operations import administration, database_healthy, effective_settings, storage_healthy
 from startnummer.app.services import InputPhoto, Services, run
 from startnummer.app.settings import Settings
+from startnummer.app.uploads import ROSTER_FILE_LIMIT, ROSTER_PREVIEW_PATH, upload_router
 from startnummer.core.batch import Batch, Conflict, Job, Missing, Photo, Publication, WorkflowError, WriteResult
 from startnummer.core.enums import NameOrder
 from startnummer.core.errors import BlobNotFound
@@ -89,6 +90,7 @@ def create_app(
         return Services(store, blobs, scoped, sessions, destination, fetch)
 
     principal, administrator = account_routes(app, authentication, settings, service_for)
+    uploads = upload_router(principal, lambda: effective_settings(store, settings).max_batch_bytes)
     User = Annotated[Account, Depends(principal)]
     Admin = Annotated[Account, Depends(administrator)]
 
@@ -207,12 +209,12 @@ def create_app(
         return store.list_batches(owner)
 
     def roster_bytes(upload):
-        data = upload.file.read(10 * 1024 * 1024 + 1) if upload else None
-        if data is not None and len(data) > 10 * 1024 * 1024:
+        data = upload.file.read(ROSTER_FILE_LIMIT + 1) if upload else None
+        if data is not None and len(data) > ROSTER_FILE_LIMIT:
             raise WorkflowError("Roster exceeds the size limit")
         return data
 
-    @app.post("/api/roster/preview", response_model=RosterPreview)
+    @uploads.post(ROSTER_PREVIEW_PATH, response_model=RosterPreview)
     def preview_roster(
         owner: Owner,
         service: Service,
@@ -222,7 +224,7 @@ def create_app(
     ):
         return service.preview_roster(roster_bytes(roster_file), roster_url, name_order)
 
-    @app.post("/api/batches", response_model=Batch, dependencies=[Depends(validate_import_fields)])
+    @uploads.post("/api/batches", response_model=Batch, dependencies=[Depends(validate_import_fields)])
     def import_batch(
         owner: Owner,
         service: Service,
@@ -276,6 +278,8 @@ def create_app(
             roster_digest=roster_digest,
             roster_names=corrections,
         )
+
+    app.include_router(uploads)
 
     @app.get("/api/batches/{batch_id}", response_model=BatchView)
     def get_batch(batch_id: UUID, owner: Owner, service: Service):

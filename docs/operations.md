@@ -49,6 +49,10 @@ reload the saved values before editing again. For larger imports, adjust the
 [proxy upload limit](reverse-proxy.md#upload-limits-and-timeouts) and temporary
 storage budget too.
 
+Batch import and roster preview share two upload slots per API process. Startnummer
+checks the session before reading a form and counts bytes as they arrive. If you
+see **Too many uploads in progress**, wait for an import or preview to finish and retry.
+
 ## Check persistent storage
 
 Compose creates these named volumes under your project name:
