@@ -239,6 +239,106 @@
         }
       }
     },
+    "/api/admin/users/{user_id}/access": {
+      "put": {
+        "summary": "Set User Access",
+        "operationId": "set_user_access_api_admin_users__user_id__access_put",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountAccess"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountAccessResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users/{user_id}/password": {
+      "put": {
+        "summary": "Reset User Password",
+        "operationId": "reset_user_password_api_admin_users__user_id__password_put",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPasswordReset"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountAccessResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/registration": {
       "put": {
         "summary": "Registration Policy",
@@ -2020,6 +2120,38 @@
   },
   "components": {
     "schemas": {
+      "AccountAccess": {
+        "properties": {
+          "disabled": {
+            "type": "boolean",
+            "title": "Disabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "disabled"
+        ],
+        "title": "AccountAccess"
+      },
+      "AccountAccessResult": {
+        "properties": {
+          "disabled": {
+            "type": "boolean",
+            "title": "Disabled"
+          },
+          "review_cleared": {
+            "type": "boolean",
+            "title": "Review Cleared"
+          }
+        },
+        "type": "object",
+        "required": [
+          "disabled",
+          "review_cleared"
+        ],
+        "title": "AccountAccessResult"
+      },
       "AccountAdministration": {
         "properties": {
           "revision": {
@@ -2092,6 +2224,33 @@
           "revision"
         ],
         "title": "AddPerson"
+      },
+      "AdminPasswordReset": {
+        "properties": {
+          "administrator_password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "format": "password",
+            "title": "Administrator Password",
+            "writeOnly": true
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
+            "format": "password",
+            "title": "Password",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "administrator_password",
+          "password"
+        ],
+        "title": "AdminPasswordReset"
       },
       "Administration": {
         "properties": {
@@ -5002,6 +5161,10 @@
             "type": "boolean",
             "title": "Is Admin"
           },
+          "disabled": {
+            "type": "boolean",
+            "title": "Disabled"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5013,6 +5176,7 @@
           "id",
           "username",
           "is_admin",
+          "disabled",
           "created_at"
         ],
         "title": "UserInfo"

@@ -100,7 +100,8 @@ For a native API on the same host, `FORWARDED_ALLOW_IPS=127.0.0.1` covers the
 connection. Compose maps `STARTNUMMER_TRUSTED_PROXY_IPS` to that Uvicorn setting.
 Docker may present host connections as a bridge gateway address instead.
 
-Check the API access log for the peer address and inspect the container networks:
+If API access logs show the proxy address, inspect the container networks to
+identify the peer that should be trusted:
 
 ```sh
 docker inspect "$(docker compose --env-file .env.docker ps -q api)" \
@@ -238,6 +239,12 @@ For containerized Nginx, run `nginx -t` and `nginx -s reload` through
 `docker compose exec nginx` in its own project. Then sign in and upload a small
 batch through the public HTTPS URL. Readiness checks API/database/storage;
 it does not check gallery access or model execution.
+
+To verify the address used for sign-in limits, request `/api/health/ready`
+through the public hostname from two networks. Compare the Nginx and API access
+logs for those requests. The API should show the client address Nginx forwarded
+for each request. If it shows the proxy's address for both, correct the trusted
+proxy configuration before relying on the per-source limit.
 
 | Symptom                                      | Check                                                                                            |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |

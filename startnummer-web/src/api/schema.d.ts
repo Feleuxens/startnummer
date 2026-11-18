@@ -125,6 +125,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set User Access */
+        put: operations["set_user_access_api_admin_users__user_id__access_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reset User Password */
+        put: operations["reset_user_password_api_admin_users__user_id__password_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/registration": {
         parameters: {
             query?: never;
@@ -762,6 +796,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountAccess */
+        AccountAccess: {
+            /** Disabled */
+            disabled: boolean;
+        };
+        /** AccountAccessResult */
+        AccountAccessResult: {
+            /** Disabled */
+            disabled: boolean;
+            /** Review Cleared */
+            review_cleared: boolean;
+        };
         /** AccountAdministration */
         AccountAdministration: {
             /** Revision */
@@ -780,6 +826,19 @@ export interface components {
             /** Roster Index */
             roster_index?: number | null;
             person?: components["schemas"]["ManualPerson"] | null;
+        };
+        /** AdminPasswordReset */
+        AdminPasswordReset: {
+            /**
+             * Administrator Password
+             * Format: password
+             */
+            administrator_password: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
         };
         /** Administration */
         Administration: {
@@ -1877,6 +1936,8 @@ export interface components {
             username: string;
             /** Is Admin */
             is_admin: boolean;
+            /** Disabled */
+            disabled: boolean;
             /**
              * Created At
              * Format: date-time
@@ -2161,6 +2222,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountAdministration"];
+                };
+            };
+        };
+    };
+    set_user_access_api_admin_users__user_id__access_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountAccess"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountAccessResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_user_password_api_admin_users__user_id__password_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountAccessResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

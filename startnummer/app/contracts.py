@@ -48,6 +48,20 @@ class PasswordChange(Input):
     password: SecretStr = Field(min_length=12, max_length=1024)
 
 
+class AdminPasswordReset(Input):
+    administrator_password: SecretStr = Field(min_length=1, max_length=1024)
+    password: SecretStr = Field(min_length=12, max_length=1024)
+
+
+class AccountAccess(Input):
+    disabled: bool
+
+
+class AccountAccessResult(BaseModel):
+    disabled: bool
+    review_cleared: bool
+
+
 class RegistrationPolicy(Input):
     revision: int = Field(ge=0)
     registration_enabled: bool
@@ -57,6 +71,7 @@ class UserInfo(BaseModel):
     id: UUID
     username: str
     is_admin: bool
+    disabled: bool
     created_at: datetime
 
 

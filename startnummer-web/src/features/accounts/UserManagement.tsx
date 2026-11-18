@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Schema } from '../../api/types';
 import { api, message, unwrap } from '../../api/client';
+import UserPasswordReset from './UserPasswordReset';
+
+const cleanupWarning =
+  ' The worker could not confirm cleanup. When it is back, revoke sessions again.';
 
 export default function UserManagement({ onDirty }: { onDirty: (dirty: boolean) => void }) {
   const [data, setData] = useState<Schema['AccountAdministration'] | null>(null);
@@ -9,6 +13,7 @@ export default function UserManagement({ onDirty }: { onDirty: (dirty: boolean) 
   const [notice, setNotice] = useState('');
   const [link, setLink] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resetUser, setResetUser] = useState<Schema['UserInfo'] | null>(null);
   const alive = useRef(true);
   const dirty = useRef(false);
   async function load() {
@@ -216,33 +221,102 @@ export default function UserManagement({ onDirty }: { onDirty: (dirty: boolean) 
               <li key={user.id}>
                 <div>
                   <strong>{user.username}</strong>
-                  <span>{user.is_admin ? 'Administrator' : 'User'}</span>
+                  <span>
+                    {user.is_admin ? 'Administrator' : user.disabled ? 'Disabled' : 'Active'}
+                  </span>
                 </div>
-                <button
-                  disabled={busy}
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        `Sign out all sessions for ${user.username}? Active analysis will be cancelled and temporary face data cleared.`,
+                <div className="actions">
+                  {!user.is_admin && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Reset password for ${user.username}`}
+                        onClick={() => setResetUser(user)}
+                      >
+                        Reset password…
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`${user.disabled ? 'Enable' : 'Disable'} ${user.username}`}
+                        onClick={() => {
+                          const disabled = !user.disabled;
+                          if (
+                            disabled &&
+                            !window.confirm(
+                              `Disable ${user.username}? This signs out all sessions and cancels active analysis.`,
+                            )
+                          )
+                            return;
+                          void run(async () => {
+                            const result = unwrap(
+                              await api.PUT('/api/admin/users/{user_id}/access', {
+                                params: { path: { user_id: user.id } },
+                                body: { disabled },
+                              }),
+                            );
+                            if (!alive.current) return;
+                            setData(
+                              (current) =>
+                                current && {
+                                  ...current,
+                                  users: current.users.map((entry) =>
+                                    entry.id === user.id
+                                      ? { ...entry, disabled: result.disabled }
+                                      : entry,
+                                  ),
+                                },
+                            );
+                            setNotice(
+                              `${user.username} ${result.disabled ? 'disabled' : 'enabled'}.${result.review_cleared ? '' : cleanupWarning}`,
+                            );
+                          });
+                        }}
+                      >
+                        {user.disabled ? 'Enable' : 'Disable…'}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          `Sign out all sessions for ${user.username}? Active analysis will be cancelled and temporary face data cleared.`,
+                        )
                       )
-                    )
-                      return;
-                    void run(async () => {
-                      unwrap(
-                        await api.DELETE('/api/admin/users/{user_id}/sessions', {
-                          params: { path: { user_id: user.id } },
-                        }),
-                      );
-                      if (alive.current) setNotice(`Sessions revoked for ${user.username}.`);
-                    });
-                  }}
-                >
-                  Revoke sessions for {user.username}
-                </button>
+                        return;
+                      void run(async () => {
+                        unwrap(
+                          await api.DELETE('/api/admin/users/{user_id}/sessions', {
+                            params: { path: { user_id: user.id } },
+                          }),
+                        );
+                        if (alive.current) setNotice(`Sessions revoked for ${user.username}.`);
+                      });
+                    }}
+                  >
+                    Revoke sessions for {user.username}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         </>
+      )}
+      {resetUser && (
+        <UserPasswordReset
+          user={resetUser}
+          onClose={() => setResetUser(null)}
+          onSaved={(reviewCleared) => {
+            setResetUser(null);
+            setError('');
+            setNotice(
+              `Password reset for ${resetUser.username}.${reviewCleared ? '' : cleanupWarning}`,
+            );
+          }}
+        />
       )}
     </section>
   );

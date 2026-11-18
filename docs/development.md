@@ -27,7 +27,8 @@ install one [device profile](devices.md) alongside it, such as
 
 Set random session/worker secrets in `.env` using the
 [native configuration steps](devices.md#2-configure-the-app). Set the database URL
-and photo root for your local installation. Then migrate and build:
+and photo root. For local HTTP, uncomment `STARTNUMMER_COOKIE_SECURE=0` in `.env`.
+Then migrate and build:
 
 ```sh
 uv run --no-sync startnummer migrate

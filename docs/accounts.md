@@ -62,9 +62,36 @@ Saved albums and captions remain. The browser clears its workspace on the next
 failed authentication check; open workspaces check every 30 seconds and when the
 window regains focus. Offline browsers notice revocation when they reconnect.
 
-Sessions expire after 12 hours. Use `STARTNUMMER_COOKIE_SECURE=1` behind HTTPS;
-use `0` only for local HTTP tests. See [authentication details](architecture.md#accounts-and-secrets)
-for password storage, token handling, and rate limits.
+Sessions expire after 12 hours. Session cookies are secure by default. Set
+`STARTNUMMER_COOKIE_SECURE=0` only for local HTTP development. The setting accepts
+`1` or `true` to enable secure cookies and `0` or `false` to disable them. Other
+values stop startup with a configuration error. See
+[authentication details](architecture.md#accounts-and-secrets) for password
+storage, token handling, and rate limits.
+
+Several failed sign-ins for the same username trigger a short wait, even when
+they come from different addresses. The wait grows with repeated failures up to
+one minute. A successful sign-in clears the username's failure streak. Each
+source address can make up to 30 failed sign-ins in ten minutes across all API
+instances.
+If you see **Too many sign-in attempts**, wait the time shown before retrying.
+
+## Recover a compromised user's account
+
+1. Open **Administration → Accounts and invitations** and find the user.
+2. Choose **Disable** to block sign-in and revoke all sessions immediately.
+3. Verify who you are giving access back to. Choose **Reset password**, confirm
+   with your administrator password, and set a new password for the user.
+4. Share the replacement privately and choose **Enable** when the user is ready.
+   Ask them to choose their own password under **Account** after signing in.
+
+Resetting a password also revokes all sessions. You can reset an active or
+disabled user's password. The account keeps its albums, captions, and settings.
+Administrators change their own passwords under **Account**.
+
+Disabling an account or resetting its password also requests cancellation of
+active analysis and removal of temporary face data. If the worker cannot confirm
+cleanup, use **Revoke sessions for…** once the worker is reachable.
 
 ## Use an environment-configured account
 

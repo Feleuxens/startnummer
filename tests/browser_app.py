@@ -47,6 +47,7 @@ def create_fixture():
         password="" if onboarding else "browser-test-only",
         session_secret="s" * 32,
         worker_secret="w" * 32,
+        cookie_secure=False,
         chevereto_url=None if administration else "http://gallery.test",
         chevereto_dsn=None if administration else "mysql://fixture:fixture-password@gallery.test/gallery",
         integration_key=Fernet.generate_key().decode() if administration else None,

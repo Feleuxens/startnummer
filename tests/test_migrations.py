@@ -1,4 +1,4 @@
-"""The first-release baseline creates the complete schema and supports fresh setup."""
+"""Fresh migrations and upgrades support account setup and preserve ownership."""
 
 from pathlib import Path
 from uuid import uuid4
@@ -51,25 +51,30 @@ def migrated(tmp_path):
         engine.dispose()
 
 
-def test_single_initial_revision_matches_the_complete_schema(migrated):
+def test_migrations_match_the_complete_schema(migrated):
     revisions = list(ScriptDirectory.from_config(configuration()).walk_revisions())
-    assert [(revision.revision, revision.down_revision) for revision in revisions] == [("1", None)]
+    assert [(revision.revision, revision.down_revision) for revision in revisions] == [
+        ("3", "2"),
+        ("2", "1"),
+        ("1", None),
+    ]
     with migrated.connect() as connection:
         assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "1"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "3"
     with Session(migrated) as db:
         instance = db.get(InstanceRow, 1)
         assert instance.admin_owner_id is None and not instance.registration_enabled and instance.revision == 0
         assert db.scalar(select(func.count()).select_from(UserRow)) == 0
 
 
-def test_migrated_database_supports_first_admin_and_registration_and_repeat_upgrade(migrated, tmp_path):
+def test_upgrade_from_first_release_preserves_users_sessions_and_batches(migrated, tmp_path):
     settings = Settings(
         database_url=str(migrated.url),
         blob_root=tmp_path / "photos",
         password="",
         session_secret="s" * 32,
         worker_secret="w" * 32,
+        cookie_secure=False,
         owner_id=uuid4(),
     )
     app = create_app(settings, store=Store(migrated), sessions=FaceSessions())
@@ -90,10 +95,16 @@ def test_migrated_database_supports_first_admin_and_registration_and_repeat_upgr
         assert visitor.post("/api/auth/register", json=body).status_code == 200
         assert visitor.get("/api/session").json()["is_admin"] is False
 
+        config = configuration()
+        with migrated.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "1")
+            assert "disabled" not in {column["name"] for column in inspect(connection).get_columns("sn_users")}
         migrate(migrated)
         assert admin.get(f"/api/batches/{batch['album']['id']}").json() == saved
         assert admin.get("/api/auth/status").json() == {"setup_required": False, "registration_enabled": True}
         assert visitor.get("/api/session").status_code == 200
+        assert all(not user["disabled"] for user in admin.get("/api/admin/accounts").json()["users"])
         with Session(migrated) as db:
             assert db.scalar(select(func.count()).select_from(UserRow)) == 2
 
@@ -107,4 +118,4 @@ def test_initial_revision_can_be_downgraded_and_reapplied(migrated):
     migrate(migrated)
     with migrated.connect() as connection:
         assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "1"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "3"

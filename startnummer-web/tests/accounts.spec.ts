@@ -2,10 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const password = 'synthetic-browser-password';
 
-test('setup, invitations, registration policy, and session revocation', async ({
-  page,
-  browser,
-}) => {
+test('setup, invitations, registration, and account recovery', async ({ page, browser }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Set up Startnummer' })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -68,6 +65,48 @@ test('setup, invitations, registration policy, and session revocation', async ({
   await expect(guest.getByRole('button', { name: 'Create an account', exact: true })).toHaveCount(
     0,
   );
+
+  const signIn = async (value: string) => {
+    await guest.getByLabel('Username', { exact: true }).fill('guest');
+    await guest.getByLabel('Password', { exact: true }).fill(value);
+    await guest.getByRole('button', { name: 'Sign in', exact: true }).click();
+  };
+  await signIn(password + '-changed');
+  await expect(guest.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await accounts.getByRole('button', { name: 'Disable guest', exact: true }).click();
+  await expect(accounts.getByRole('status')).toContainText('guest disabled');
+  await expect(accounts.getByRole('button', { name: 'Enable guest', exact: true })).toBeVisible();
+  expect((await guest.request.get('/api/session')).status()).toBe(401);
+  await guest.reload();
+
+  await accounts.getByRole('button', { name: 'Reset password for guest', exact: true }).click();
+  const reset = page.getByRole('dialog', { name: 'Reset password for guest' });
+  await expect(reset).toBeVisible();
+  await reset.screenshot({ path: test.info().outputPath('password-reset-mobile.png') });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await reset.screenshot({ path: test.info().outputPath('password-reset-desktop.png') });
+  await reset.getByLabel('Your administrator password', { exact: true }).fill(password);
+  await reset
+    .getByLabel('New password (at least 12 characters)', { exact: true })
+    .fill(password + '-reset');
+  await reset.getByLabel('Confirm new password', { exact: true }).fill(password + '-mismatch');
+  await reset.getByRole('button', { name: 'Reset password', exact: true }).click();
+  await expect(reset.getByRole('alert')).toContainText('do not match');
+  await reset.getByLabel('Confirm new password', { exact: true }).fill(password + '-reset');
+  await reset.getByRole('button', { name: 'Reset password', exact: true }).click();
+  await expect(reset).toBeHidden();
+  await expect(accounts.getByRole('status')).toContainText('Password reset for guest');
+  await signIn(password + '-reset');
+  await expect(guest.getByRole('alert')).toContainText('Invalid username or password');
+  await accounts.getByRole('button', { name: 'Enable guest', exact: true }).click();
+  await expect(accounts.getByRole('status')).toContainText('guest enabled');
+  await signIn(password + '-changed');
+  await expect(guest.getByRole('alert')).toContainText('Invalid username or password');
+  await signIn(password + '-reset');
+  await expect(guest.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();
+  await guest.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(guest.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
 
   await guest.goto(link);
   await guest.getByLabel('Username', { exact: true }).fill('reused');

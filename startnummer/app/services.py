@@ -313,11 +313,18 @@ class Services:
 
         return self.store.enqueue(owner_id, batch_id, before_queue=discard_session)
 
-    def cancel_analysis(self, owner_id, batch_id):
+    def cancel_analysis(self, owner_id, batch_id, *, require_face_cleanup=True):
         with self.store.transaction(owner_id) as session:
             self.store.load(session, owner_id, batch_id, lock=True)
-            self.sessions.finish(owner_id, batch_id)
             self.store.cancel(session, owner_id, batch_id)
+            try:
+                self.sessions.finish(owner_id, batch_id)
+            except Conflict:
+                if require_face_cleanup:
+                    raise
+                # Account containment must cancel queued work even if the worker is offline.
+                return False
+        return True
 
     def add_person(self, owner_id, batch_id, photo_id, request):
         with self.store.transaction(owner_id) as session:

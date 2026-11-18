@@ -113,6 +113,7 @@ def environment(tmp_path):
         password="test-password",
         session_secret="s" * 32,
         worker_secret="w" * 32,
+        cookie_secure=False,
         owner_id=owner,
         chevereto_url="http://gallery.test",
         roster_hosts=("roster.test",),

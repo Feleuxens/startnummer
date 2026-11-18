@@ -1317,6 +1317,23 @@ button.face-box.chosen {
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+.password-reset-dialog {
+  width: min(440px, calc(100% - 32px));
+}
+.password-reset-dialog h2 {
+  overflow-wrap: anywhere;
+}
+.password-reset-dialog fieldset {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.password-reset-dialog .actions {
+  justify-content: flex-end;
+}
 .invitation-link {
   margin-top: 20px;
 }

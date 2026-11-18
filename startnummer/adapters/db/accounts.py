@@ -18,9 +18,9 @@ from startnummer.adapters.db.schema import (
     SettingsRow,
     UserRow,
 )
-from startnummer.core.batch import Conflict, WorkflowError, now
+from startnummer.core.batch import Conflict, Missing, WorkflowError, now
 
-AUTH_TABLES = {"sn_users", "sn_instance", "sn_sessions", "sn_invitations"}
+AUTH_TABLES = {"sn_users", "sn_instance", "sn_sessions", "sn_invitations", "sn_login_attempts"}
 
 
 def username_key(username):
@@ -33,10 +33,11 @@ class Account:
     username: str
     is_admin: bool
     credential_hash: str | None = field(default=None, repr=False)
+    disabled: bool = False
 
 
 def account(row):
-    return Account(row.id, row.username, row.is_admin, row.password_hash)
+    return Account(row.id, row.username, row.is_admin, row.password_hash, row.disabled)
 
 
 def utc(value: datetime):
@@ -48,13 +49,13 @@ class Accounts:
         self.engine = engine
 
     @contextmanager
-    def write(self):
-        # Serialize first-admin creation, registration policy, and invitation claims.
+    def write(self, *, lock_key=-738390521327):
+        # Serialize account changes with session issuance and invitation claims.
         with Session(self.engine, expire_on_commit=False) as db:
             if self.engine.dialect.name == "sqlite":
                 db.execute(text("BEGIN IMMEDIATE"))
             elif self.engine.dialect.name == "postgresql":
-                db.execute(text("SELECT pg_advisory_xact_lock(-738390521327)"))
+                db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
             try:
                 yield db
                 db.commit()
@@ -189,6 +190,8 @@ class Accounts:
     def create_session(self, user, token_hash):
         with self.write() as db:
             current = db.get(UserRow, user.id)
+            if current is not None and current.disabled:
+                raise Conflict("The account is disabled")
             if current is None or not current.password_hash or current.password_hash != user.credential_hash:
                 raise Conflict("The account password changed; sign in again")
             db.execute(delete(SessionRow).where(SessionRow.expires_at <= now()))
@@ -207,6 +210,7 @@ class Accounts:
                     SessionRow.token_hash == token_hash,
                     SessionRow.expires_at > now(),
                     UserRow.password_hash.is_not(None),
+                    UserRow.disabled.is_(False),
                 )
             )
             return account(row) if row else None
@@ -221,11 +225,43 @@ class Accounts:
     def change_password(self, user, password_hash):
         with self.write() as db:
             row = db.get(UserRow, user.id)
-            if row.password_hash != user.credential_hash:
+            if row is None or row.disabled or row.password_hash != user.credential_hash:
                 raise Conflict("The account password changed; sign in again")
             row.password_hash = password_hash
             db.execute(delete(SessionRow).where(SessionRow.user_id == user.id))
             db.flush()
+            return account(row)
+
+    @staticmethod
+    def _managed_user(db, user_id):
+        row = db.get(UserRow, user_id)
+        if row is None:
+            raise Missing("Account not found")
+        if row.is_admin:
+            raise WorkflowError("This action is only available for ordinary users")
+        return row
+
+    def set_disabled(self, user_id, disabled):
+        with self.write() as db:
+            row = self._managed_user(db, user_id)
+            row.disabled = disabled
+            if disabled:
+                db.execute(delete(SessionRow).where(SessionRow.user_id == user_id))
+            return account(row)
+
+    def reset_password(self, admin, user_id, password_hash):
+        with self.write() as db:
+            current = db.get(UserRow, admin.id)
+            if (
+                current is None
+                or current.disabled
+                or not current.is_admin
+                or current.password_hash != admin.credential_hash
+            ):
+                raise Conflict("The administrator credentials changed; sign in again")
+            row = self._managed_user(db, user_id)
+            row.password_hash = password_hash
+            db.execute(delete(SessionRow).where(SessionRow.user_id == user_id))
             return account(row)
 
     def administration(self):
@@ -235,7 +271,13 @@ class Accounts:
                 "revision": config.revision,
                 "registration_enabled": config.registration_enabled,
                 "users": [
-                    {"id": row.id, "username": row.username, "is_admin": row.is_admin, "created_at": row.created_at}
+                    {
+                        "id": row.id,
+                        "username": row.username,
+                        "is_admin": row.is_admin,
+                        "disabled": row.disabled,
+                        "created_at": row.created_at,
+                    }
                     for row in db.scalars(select(UserRow).order_by(UserRow.created_at))
                 ],
                 "invitations": [

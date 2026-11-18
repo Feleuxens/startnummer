@@ -7,20 +7,32 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
+from ipaddress import ip_address
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 
-from startnummer.adapters.db.accounts import Accounts
+from startnummer.adapters.db.accounts import Accounts, username_key
+from startnummer.adapters.db.login_attempts import LoginAttempts
 from startnummer.core.batch import WorkflowError
 
 SESSION_SECONDS = 12 * 3600
 TOKEN = re.compile(r"[A-Za-z0-9_-]{43}")
 
 
+def source_address(host):
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return "unknown"
+    address = getattr(address, "ipv4_mapped", None) or address
+    return str(address).partition("%")[0]
+
+
 class Authentication:
     def __init__(self, engine, settings):
         self.accounts = Accounts(engine)
+        self.login_attempts = LoginAttempts(self.accounts)
         self.settings = settings
         self.hasher = PasswordHasher()
         self._initialized = False
@@ -85,9 +97,21 @@ class Authentication:
             self.verify(self._dummy, password)
             return None
         user, password_hash = found
-        if not self.verify(password_hash, password):
+        if not self.verify(password_hash, password) or user.disabled:
             return None
         return user
+
+    def login_from(self, username, password, peer):
+        source = self.digest(source_address(peer), "login-source")
+        name = self.digest(username_key(username) if len(username) <= 128 else "", "login-name")
+        reservation = self.login_attempts.reserve(source, name)
+        success = None
+        try:
+            user = self.login(username, password) if len(username) <= 128 and len(password) <= 1024 else None
+            success = user is not None
+            return user
+        finally:
+            self.login_attempts.settle(reservation, success=success)
 
     def register(self, username, password, invitation=None):
         self.initialize()

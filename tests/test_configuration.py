@@ -36,7 +36,7 @@ def test_migration_needs_only_its_database_url(configuration, tmp_path, monkeypa
     engine = create_engine(url)
     try:
         with engine.connect() as connection:
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "1"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "3"
     finally:
         engine.dispose()
 
@@ -94,6 +94,31 @@ def test_integer_error_names_only_its_field(configuration, tmp_path, monkeypatch
         Settings.from_env()
     assert name in str(result.value) and "integer" in str(result.value)
     assert "synthetic-invalid-value" not in str(result.value)
+
+
+@pytest.fixture
+def cookie_configuration(configuration, tmp_path, monkeypatch):
+    monkeypatch.setenv("STARTNUMMER_DATABASE_URL", "sqlite://")
+    monkeypatch.setenv("STARTNUMMER_BLOB_ROOT", str(tmp_path / "photos"))
+    monkeypatch.setenv("STARTNUMMER_SESSION_SECRET", "s" * 32)
+    monkeypatch.setenv("STARTNUMMER_WORKER_SECRET", "w" * 32)
+    return configuration
+
+
+@pytest.mark.parametrize("value, secure", [(None, True), ("1", True), ("TRUE", True), ("0", False), ("false", False)])
+def test_secure_cookie_is_default_and_http_requires_explicit_opt_out(cookie_configuration, monkeypatch, value, secure):
+    if value is not None:
+        monkeypatch.setenv("STARTNUMMER_COOKIE_SECURE", value)
+    assert Settings.from_env().cookie_secure is secure
+
+
+@pytest.mark.parametrize("value", ["", "flase", "synthetic-private-value"])
+def test_invalid_cookie_setting_stops_native_startup(cookie_configuration, monkeypatch, capsys, value):
+    monkeypatch.setenv("STARTNUMMER_COOKIE_SECURE", value)
+    with pytest.raises(SystemExit) as result:
+        main([*cookie_configuration, "start"])
+    assert result.value.code == 1
+    assert capsys.readouterr().err == "STARTNUMMER_COOKIE_SECURE must be 1, 0, true, or false\n"
 
 
 def test_setup_code_cli_does_not_require_an_environment_login(configuration, tmp_path, monkeypatch, capsys):

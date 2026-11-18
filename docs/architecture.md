@@ -158,10 +158,14 @@ and are available only through the CLI while unclaimed. Invitations use random,
 expiring single-use tokens; their URL fragments stay out of HTTP paths and proxy
 access logs. Their database records contain keyed digests, not usable links.
 
-Changing the session secret invalidates sessions and unused invitations and
-changes an unclaimed setup code. Sign-in, setup, registration, and password change
-have bounded process-local rate limits. Trusted proxy configuration determines
-which client address they see.
+Changing the session secret invalidates sessions and unused invitations, resets
+the sign-in keys, and changes an unclaimed setup code. Sign-in limits share
+short-lived, keyed source and normalized username counters in PostgreSQL. A short
+transaction reserves a slot before Argon2 runs. Success refunds the source slot
+and clears the username's failures. Password verification holds no database lock.
+Expired counters are pruned during sign-in and are excluded from backups.
+Setup, registration, and password changes use separate process-local limits.
+The API uses the client address resolved by Uvicorn's trusted proxy settings.
 
 Gallery credentials saved through Administration are encrypted with a separate
 Fernet key. Environment connections take precedence when either connection
@@ -171,10 +175,9 @@ fallback silently. See [Accounts](accounts.md) and [Chevereto](chevereto.md).
 ## Database and recovery
 
 Startnummer uses PostgreSQL; Chevereto uses its separate MariaDB database.
-SQLite is for disposable tests and offline development. A single initial migration
-at revision `1` creates the full schema, including accounts. Earlier pre-release
-databases need a fresh database for this baseline; there is no upgrade path from
-their old revision IDs. Preserve migration history after the first release.
+SQLite is for disposable tests and offline development. Revision `1` is the
+first-release baseline. Later migrations upgrade existing installations in place.
+Earlier pre-release revision IDs require a fresh database.
 
 Application archive format 3 retains one account's username, owner UUID, saved
 records, photo bytes, and checksums. Formats 1 and 2 remain readable. Authentication

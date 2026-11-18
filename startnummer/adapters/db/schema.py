@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -18,6 +18,7 @@ class UserRow(Base):
     username_key: Mapped[str] = mapped_column(String(128), unique=True)
     password_hash: Mapped[str | None] = mapped_column(Text)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -35,6 +36,15 @@ class SessionRow(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("sn_users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class LoginAttemptRow(Base):
+    __tablename__ = "sn_login_attempts"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reservation: Mapped[UUID | None] = mapped_column(Uuid)
 
 
 class InvitationRow(Base):

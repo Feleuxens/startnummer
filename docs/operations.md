@@ -109,7 +109,7 @@ in the [proxy guide](reverse-proxy.md).
 
 The old API and worker must be stopped before the new schema is applied. Do not
 assume an older image can use a migrated schema; recovery may require restoring
-a backup. The first-release baseline uses one migration at revision `1`. Older
+a backup. The first-release baseline is revision `1`. Older
 pre-release revision IDs have no in-place upgrade path; use a fresh database or
 [recover an archive into an empty installation](backups.md#test-a-recovery).
 
@@ -145,6 +145,7 @@ uv run --no-sync startnummer stop
 
 It loads `.env`; existing environment variables take precedence. Use
 `startnummer --env-file /path/to/config.env ...` to select another file.
+For local HTTP, set `STARTNUMMER_COOKIE_SECURE=0` in that file before starting.
 Without `--detach`, it stays in the foreground. Detached logs are written to
 `.startnummer/run/launcher.log`; `--run-dir` selects another runtime directory.
 

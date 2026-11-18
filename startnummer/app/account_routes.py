@@ -6,9 +6,13 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Request, Response
 
 from startnummer.adapters.db.accounts import Account
+from startnummer.adapters.db.login_attempts import LoginThrottled
 from startnummer.app.auth import SESSION_SECONDS
 from startnummer.app.contracts import (
+    AccountAccess,
+    AccountAccessResult,
     AccountAdministration,
+    AdminPasswordReset,
     AuthStatus,
     InvitationCreated,
     InvitationRequest,
@@ -19,6 +23,7 @@ from startnummer.app.contracts import (
     SessionInfo,
     Setup,
 )
+from startnummer.core.batch import Missing
 
 
 def account_routes(app, authentication, settings, service_for):
@@ -59,10 +64,22 @@ def account_routes(app, authentication, settings, service_for):
         if not authentication.throttle(f"{action}:{peer}", limit):
             raise HTTPException(429, "Too many attempts; try again in ten minutes", headers={"Retry-After": "600"})
 
-    def clear_review(user):
+    def clear_review(user, *, require_face_cleanup=True):
         service = service_for(user)
+        cleared = True
         for batch in service.store.list_batches(user.id):
-            service.cancel_analysis(user.id, batch["id"])
+            try:
+                if not service.cancel_analysis(user.id, batch["id"], require_face_cleanup=require_face_cleanup):
+                    cleared = False
+            except Missing:
+                continue  # The batch was deleted after listing it.
+        return cleared
+
+    def access_result(target, *, clear):
+        return {
+            "disabled": target.disabled,
+            "review_cleared": not clear or clear_review(target, require_face_cleanup=False),
+        }
 
     @app.get("/api/auth/status", response_model=AuthStatus)
     def auth_status():
@@ -93,10 +110,16 @@ def account_routes(app, authentication, settings, service_for):
 
     @app.post("/api/session", response_model=SessionInfo)
     def login(body: Login, request: Request, response: Response):
-        throttled(request, "login", 120)
-        if len(body.username) > 128 or len(body.password) > 1024:
-            raise HTTPException(401, "Invalid username or password")
-        user = authentication.login(body.username, body.password)
+        # Uvicorn resolves the client address only from explicitly trusted proxies.
+        peer = request.client.host if request.client else None
+        try:
+            user = authentication.login_from(body.username, body.password, peer)
+        except LoginThrottled as exc:
+            raise HTTPException(
+                429,
+                f"Too many sign-in attempts. Try again in {exc.seconds} seconds.",
+                headers={"Retry-After": str(exc.seconds)},
+            ) from None
         if user is None:
             raise HTTPException(401, "Invalid username or password")
         return signed_in(user, response)
@@ -133,6 +156,23 @@ def account_routes(app, authentication, settings, service_for):
     @app.get("/api/admin/accounts", response_model=AccountAdministration)
     def accounts(user: Admin):
         return authentication.accounts.administration()
+
+    @app.put("/api/admin/users/{user_id}/access", response_model=AccountAccessResult)
+    def set_user_access(user_id: UUID, body: AccountAccess, user: Admin):
+        target = authentication.accounts.set_disabled(user_id, body.disabled)
+        return access_result(target, clear=body.disabled)
+
+    @app.put("/api/admin/users/{user_id}/password", response_model=AccountAccessResult)
+    def reset_user_password(user_id: UUID, body: AdminPasswordReset, user: Admin, request: Request):
+        throttled(request, "admin-password", 20)
+        if not user.credential_hash or not authentication.verify(
+            user.credential_hash, body.administrator_password.get_secret_value()
+        ):
+            raise HTTPException(400, "The administrator password is incorrect")
+        target = authentication.accounts.reset_password(
+            user, user_id, authentication.hash_password(body.password.get_secret_value())
+        )
+        return access_result(target, clear=True)
 
     @app.put("/api/admin/registration", response_model=RegistrationPolicy)
     def registration_policy(body: RegistrationPolicy, user: Admin):

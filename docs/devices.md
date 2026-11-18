@@ -52,6 +52,10 @@ set `STARTNUMMER_INFERENCE_BACKEND=apple`. Remove both Chevereto connection
 variables if you will configure the gallery later through Administration. Leave
 legacy username/password variables commented out for a new account.
 
+If you are following this example on `http://127.0.0.1`, uncomment
+`STARTNUMMER_COOKIE_SECURE=0` in `.env` so you can sign in over local HTTP.
+Keep secure cookies enabled for an installation served over HTTPS.
+
 ### 3. Build and start
 
 ```sh

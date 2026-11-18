@@ -15,7 +15,7 @@ from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.app.api import create_app
 from startnummer.app.settings import Settings
-from startnummer.core.batch import now
+from startnummer.core.batch import Conflict, now
 from tests.test_workflow import HTML, image_bytes
 
 HEADERS = {"X-Requested-With": "Startnummer"}
@@ -32,6 +32,7 @@ def accounts(tmp_path):
         password="",
         session_secret="s" * 32,
         worker_secret="w" * 32,
+        cookie_secure=False,
         owner_id=uuid4(),
     )
     faces = FaceSessions()
@@ -105,6 +106,22 @@ def test_setup_requires_code_is_single_use_and_hashes_credentials(accounts):
         assert PASSWORD not in user.password_hash
         assert db.scalar(select(SessionRow.token_hash)) != raw_token
         assert db.get(InstanceRow, 1).admin_owner_id == user.id
+
+
+@pytest.mark.parametrize("secure", [True, False])
+def test_session_cookie_secure_attribute_and_http_behavior(accounts, secure):
+    _, engine, settings, faces = accounts
+    app = create_app(replace(settings, cookie_secure=secure), store=Store(engine), sessions=faces)
+    url = "https://testserver" if secure else "http://testserver"
+    with TestClient(app, base_url=url, headers=HEADERS) as browser:
+        response = browser.post(
+            "/api/auth/setup",
+            json={"username": "admin", "password": PASSWORD, "code": app.state.authentication.setup_code()},
+        )
+        assert response.status_code == 200
+        assert ("; secure" in response.headers["set-cookie"].lower()) is secure
+        assert browser.get("/api/session").status_code == 200
+        assert browser.get("http://testserver/api/session").status_code == (401 if secure else 200)
 
 
 def test_only_one_first_administrator_can_win_concurrent_setup(accounts):
@@ -219,6 +236,73 @@ def test_logout_and_administrator_revocation_invalidate_replayed_cookies(account
     assert admin.delete(f"/api/admin/users/{user['id']}/sessions").status_code == 200
     assert another.get("/api/session").status_code == 401
     assert not faces.get(owner, UUID(batch["album"]["id"]))["available"]
+
+
+def test_administrator_can_contain_and_recover_a_compromised_account(accounts):
+    app, engine, _, faces = accounts
+    admin = setup(app)
+    member, _ = invite(admin, app)
+    old_login = {"username": "athlete", "password": PASSWORD}
+    second = client(app)
+    assert second.post("/api/session", json=old_login).status_code == 200
+    batch = imported(member)["album"]
+    owner, batch_id = UUID(batch["owner_id"]), UUID(batch["id"])
+    review_url = f"/api/batches/{batch_id}"
+    base = f"/api/admin/users/{owner}"
+    assert member.post(f"{review_url}/analysis").status_code == 200
+    saved = member.get(review_url).json()
+    faces.put(owner, batch_id, {})
+
+    replacement = "synthetic-replacement-password"
+    reset = {"password": replacement, "administrator_password": PASSWORD}
+    assert member.put(f"{base}/access", json={"disabled": True}).status_code == 403
+    assert member.put(f"{base}/password", json=reset).status_code == 403
+    admin_id = next(user["id"] for user in admin.get("/api/admin/accounts").json()["users"] if user["is_admin"])
+    assert admin.put(f"/api/admin/users/{admin_id}/access", json={"disabled": True}).status_code == 400
+    assert admin.put(f"/api/admin/users/{admin_id}/password", json=reset).status_code == 400
+
+    assert admin.put(f"{base}/access", json={"disabled": True}).json() == {"disabled": True, "review_cleared": True}
+    assert member.get(review_url).status_code == 401
+    assert second.get("/api/session").status_code == 401
+    assert client(app).post("/api/session", json=old_login).status_code == 401
+    assert not faces.get(owner, batch_id)["available"]
+    assert app.state.services.store.jobs(owner, batch_id)[0].state == "cancelled"
+    assert admin.put(f"{base}/password", json={**reset, "administrator_password": "wrong"}).status_code == 400
+    assert admin.put(f"{base}/password", json=reset).json() == {"disabled": True, "review_cleared": True}
+    new_login = {**old_login, "password": replacement}
+    assert client(app).post("/api/session", json=new_login).status_code == 401
+    assert admin.put(f"{base}/access", json={"disabled": False}).json()["disabled"] is False
+    assert second.get("/api/session").status_code == 401
+    assert member.post("/api/session", json=old_login).status_code == 401
+    assert member.post("/api/session", json=new_login).status_code == 200
+    assert member.get(review_url).json()["batch"] == saved["batch"]
+    assert admin.get(review_url).status_code == 404
+    with Session(engine) as db:
+        password_hash = db.get(UserRow, owner).password_hash
+        assert password_hash.startswith("$argon2id$") and replacement not in password_hash
+
+
+def test_admin_password_reset_revokes_sessions_and_cancels_jobs_while_worker_is_unreachable(accounts, monkeypatch):
+    app, _, _, faces = accounts
+    admin = setup(app)
+    member, _ = invite(admin, app)
+    album = imported(member)["album"]
+    owner, batch_id = UUID(album["owner_id"]), UUID(album["id"])
+    assert member.post(f"/api/batches/{batch_id}/analysis").status_code == 200
+
+    def unavailable(*args):
+        raise Conflict("Worker unreachable")
+
+    monkeypatch.setattr(faces, "finish", unavailable)
+    replacement = "synthetic-replacement-password"
+    response = admin.put(
+        f"/api/admin/users/{owner}/password", json={"administrator_password": PASSWORD, "password": replacement}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"disabled": False, "review_cleared": False}
+    assert app.state.services.store.jobs(owner, batch_id)[0].state == "cancelled"
+    assert member.get("/api/session").status_code == 401
+    assert member.post("/api/session", json={"username": "athlete", "password": replacement}).status_code == 200
 
 
 def test_legacy_account_is_imported_once_with_existing_owner_and_password_changes_revoke_sessions(accounts):
