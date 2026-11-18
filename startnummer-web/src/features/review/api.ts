@@ -81,11 +81,13 @@ export const unapprovePhoto = async (batchId: string, photo: Photo) =>
     }),
   );
 
-export const addPerson = async (batchId: string, photo: Photo, rosterIndex: number) =>
+export type PersonToAdd = { roster_index: number } | { person: Schema['ManualPerson'] };
+
+export const addPerson = async (batchId: string, photo: Photo, person: PersonToAdd) =>
   unwrap(
     await api.POST('/api/batches/{batch_id}/photos/{photo_id}/subjects', {
       params: { path: { batch_id: batchId, photo_id: photo.id } },
-      body: { revision: photo.revision, roster_index: rosterIndex },
+      body: { revision: photo.revision, ...person },
     }),
   );
 

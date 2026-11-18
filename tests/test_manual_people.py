@@ -1,4 +1,4 @@
-"""Roster-based captioning when detection has no usable subject."""
+"""Add people and generate captions when detection misses a subject."""
 
 from copy import deepcopy
 from uuid import uuid4
@@ -12,7 +12,7 @@ pytest.importorskip("multipart")
 from fastapi.testclient import TestClient
 
 from startnummer.app.api import create_app
-from startnummer.app.contracts import AddPerson, Edit, Selection
+from startnummer.app.contracts import AddPerson, Edit, ManualPerson, Selection, SubjectEdit
 from startnummer.app.worker import Worker
 from startnummer.core.batch import AnalysisDocument, Conflict, Missing, WorkflowError
 from startnummer.core.enums import Source, Status
@@ -95,7 +95,8 @@ def test_roster_person_without_bib_and_ambiguous_discipline(environment):
     assert saved.analysis.record.subjects[0].bibs == []
 
 
-def test_added_people_survive_rerun_and_removal_preserves_detected_face_indexes(environment):
+@pytest.mark.parametrize("from_roster", [True, False])
+def test_added_people_survive_rerun_and_removal_preserves_detected_face_indexes(environment, from_roster):
     service, _ = environment
     batch = import_batch(service)
     owner, batch_id = batch.album.owner_id, batch.album.id
@@ -103,18 +104,20 @@ def test_added_people_survive_rerun_and_removal_preserves_detected_face_indexes(
     service.analyze(owner, batch_id)
     worker.run_once()
     batch = service.store.get(owner, batch_id)
-    batch.roster.athletes.append(Athlete(name="Other Person", bib="99"))
-    with service.store.transaction(owner) as db:
-        service.store.save(db, batch)
+    if from_roster:
+        batch.roster.athletes.append(Athlete(name="Other Person", bib="99"))
+        with service.store.transaction(owner) as db:
+            service.store.save(db, batch)
+    source = {"roster_index": 1} if from_roster else {"person": ManualPerson(name="Other Person", bib="99")}
     photo = batch.photos[0]
     with pytest.raises(Conflict, match="Only people added manually"):
         service.remove_person(owner, batch_id, photo.id, 0, photo.revision)
-    saved = service.add_person(owner, batch_id, photo.id, AddPerson(revision=photo.revision, roster_index=1))
+    saved = service.add_person(owner, batch_id, photo.id, AddPerson(revision=photo.revision, **source))
     geometry = deepcopy(service.sessions.get(owner, batch_id)["photos"])
     removed = service.remove_person(owner, batch_id, photo.id, 1, saved.revision)
     assert service.sessions.get(owner, batch_id)["photos"] == geometry
     assert removed.analysis.record.subjects[0] == photo.analysis.record.subjects[0]
-    added = service.add_person(owner, batch_id, photo.id, AddPerson(revision=removed.revision, roster_index=1))
+    added = service.add_person(owner, batch_id, photo.id, AddPerson(revision=removed.revision, **source))
     service.analyze(owner, batch_id)
     worker.run_once()
     saved = service.store.get(owner, batch_id).photo(photo.id)
@@ -174,3 +177,37 @@ def test_http_add_and_remove_are_authenticated_and_revision_checked(environment)
         response = client.request("DELETE", url + "/0", json={"revision": saved["revision"]}, headers=headers)
         assert response.status_code == 200
         assert response.json()["analysis"]["record"]["subjects"] == []
+
+
+def test_add_unlisted_person_validates_input_and_preserves_manual_caption(environment):
+    service, _ = environment
+    batch = import_batch(service)
+    owner, batch_id, photo = batch.album.owner_id, batch.album.id, batch.photos[0]
+    photo = service.edit(owner, batch_id, photo.id, Edit(revision=photo.revision, caption="Keep my text"))
+    app = create_app(service.settings, store=service.store, blobs=service.blobs, sessions=service.sessions)
+    url = f"/api/batches/{batch_id}/photos/{photo.id}/subjects"
+    headers = {"X-Requested-With": "Startnummer"}
+    details = {"name": "  Sam   Visitor ", "bib": " 007 ", "club": " Away Club "}
+    with TestClient(app, headers=headers) as client:
+        client.post("/api/session", json={"username": "photographer", "password": "test-password"})
+        for invalid in ({}, {"person": {"name": "  "}}, {"roster_index": 0, "person": details}):
+            assert client.post(url, json={"revision": photo.revision, **invalid}).status_code == 422
+        response = client.post(url, json={"revision": photo.revision, "person": details})
+        assert response.status_code == 200
+    saved = service.store.get(owner, batch_id).photo(photo.id)
+    assert saved.caption == "Keep my text"
+    assert saved.proposal == "Sam Visitor (007, Away Club) | Example Meet"
+    subject = saved.analysis.record.subjects[0]
+    assert subject.added_manually and subject.bibs == []
+    assert not service.sessions.get(owner, batch_id)["available"]
+    corrected = service.edit(
+        owner,
+        batch_id,
+        photo.id,
+        Edit(revision=saved.revision, subjects=[SubjectEdit(subject=0, athlete_name="Sam Guest", bib="008")]),
+    )
+    subject = corrected.analysis.record.subjects[0]
+    assert subject.athlete.value.name == "Sam Guest"
+    assert subject.athlete.value.bib == "008"
+    assert subject.athlete.value.club == "Away Club"
+    assert subject.bibs == []

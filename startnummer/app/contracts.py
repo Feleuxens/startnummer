@@ -231,8 +231,26 @@ class Revision(Input):
     revision: int = Field(ge=0)
 
 
+class ManualPerson(Input):
+    name: str = Field(min_length=1, max_length=200)
+    bib: str = Field(default="", max_length=64)
+    club: str = Field(default="", max_length=200)
+
+    @field_validator("name", "bib", "club", mode="before")
+    @classmethod
+    def trim_details(cls, value):
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+
 class AddPerson(Revision):
-    roster_index: int = Field(ge=0)
+    roster_index: int | None = Field(default=None, ge=0)
+    person: ManualPerson | None = None
+
+    @model_validator(mode="after")
+    def one_person_source(self):
+        if (self.roster_index is None) == (self.person is None):
+            raise ValueError("Select a roster entry or enter a person's details")
+        return self
 
 
 class SubjectEdit(Input):

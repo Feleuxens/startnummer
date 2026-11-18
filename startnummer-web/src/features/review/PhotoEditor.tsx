@@ -2,9 +2,11 @@ import { useState } from 'react';
 import type { SubmitEvent } from 'react';
 import type { Schema, Photo, Edit, FaceView } from '../../api/types';
 import DisciplineSelect from '../../components/DisciplineSelect';
+import AddPerson from './AddPerson';
+import type { PersonToAdd } from './api';
 import SubjectEditor from './SubjectEditor';
 import type { SubjectDraft } from './SubjectEditor';
-import { matchesRosterQuery, rosterPersonLabel, approved, canApprove } from './model';
+import { approved, canApprove } from './model';
 
 export default function PhotoEditor({
   photo,
@@ -36,22 +38,16 @@ export default function PhotoEditor({
   onUnapprove: () => Promise<void>;
   onRefreshSuggestion: () => Promise<void>;
   onFindMatches: (subject: number) => Promise<void>;
-  onAddPerson: (rosterIndex: number) => Promise<void>;
+  onAddPerson: (person: PersonToAdd) => Promise<void>;
   onRemovePerson: (subject: number) => Promise<void>;
 }) {
   const [caption, setCaption] = useState(photo.caption ?? '');
   const [replace, setReplace] = useState(photo.replace_existing ?? false);
   const [patch, setPatch] = useState<Partial<Edit>>({});
   const [dirty, setDirty] = useState(false);
-  const [rosterQuery, setRosterQuery] = useState('');
-  const [rosterIndex, setRosterIndex] = useState('');
   const [subjectEdits, setSubjectEdits] = useState<Record<number, SubjectDraft>>({});
   const [useGenerated, setUseGenerated] = useState(false);
-  const peopleToAdd = (roster.athletes ?? [])
-    .map((person, index) => ({ person, index }))
-    .filter(({ person }) => matchesRosterQuery(person, rosterQuery));
   const record = photo.analysis?.record;
-  const hasRoster = !!roster.athletes?.length;
   const subjects = record?.subjects ?? [];
   const mark = () => {
     setDirty(true);
@@ -173,62 +169,8 @@ export default function PhotoEditor({
         )}
         <section className="evidence">
           <h3>Subjects and evidence</h3>
-          {!subjects.length && (
-            <p className="muted">
-              {hasRoster
-                ? record
-                  ? 'No subjects detected. Add someone from the roster to generate a caption.'
-                  : 'Add someone from the roster, or analyze the batch to detect subjects.'
-                : record
-                  ? 'No subjects detected. You can enter a caption manually.'
-                  : 'Analyze the batch to detect people, then name them during review.'}
-            </p>
-          )}
-          {hasRoster && (
-            <details className="add-person" open={!subjects.length}>
-              <summary>Add person from roster</summary>
-              <div className="subject-editor">
-                <label>
-                  Find roster person
-                  <input
-                    value={rosterQuery}
-                    placeholder="Name, bib, or club"
-                    onChange={(event) => {
-                      setRosterQuery(event.target.value);
-                      setRosterIndex('');
-                    }}
-                  />
-                </label>
-                <label>
-                  Person to add
-                  <select
-                    value={rosterIndex}
-                    onChange={(event) => setRosterIndex(event.target.value)}
-                  >
-                    <option value="">Choose a person</option>
-                    {peopleToAdd.map(({ person, index }) => (
-                      <option value={index} key={index}>
-                        {rosterPersonLabel(person)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {!peopleToAdd.length && <small>No roster entries match this search.</small>}
-                <small>
-                  Adds this person to this photo and generates a caption suggestion. Edited captions
-                  are kept.
-                </small>
-                {dirty && <small>Save current edits before adding a person.</small>}
-                <button
-                  type="button"
-                  disabled={busy || dirty || rosterIndex === ''}
-                  onClick={() => void onAddPerson(Number(rosterIndex))}
-                >
-                  Add to this photo
-                </button>
-              </div>
-            </details>
-          )}
+          {!subjects.length && record && <p className="muted">No subjects detected.</p>}
+          <AddPerson roster={roster} empty={!subjects.length} dirty={dirty} onAdd={onAddPerson} />
           {subjects.length > 1 && (
             <p className="muted">Edit any person, then save all corrections together.</p>
           )}
@@ -261,7 +203,10 @@ export default function PhotoEditor({
                             (bib) =>
                               `${bib.value} · ${Math.round(bib.confidence * 100)}% · ${bib.source}`,
                           )
-                          .join(' / ') || 'No bib read'}
+                          .join(' / ') ||
+                          (item.added_manually && item.athlete?.value.bib
+                            ? `Bib ${item.athlete.value.bib}`
+                            : 'No bib read')}
                       </small>
                       {item.athlete && (
                         <small>

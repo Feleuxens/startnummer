@@ -34,12 +34,16 @@ export default function SubjectEditor({
       ? roster.athletes?.findIndex((person) => person.bib === draft.roster_bib)
       : undefined);
   const chosen = chosenIndex != null ? roster.athletes?.[chosenIndex] : undefined;
+  const added = subject.added_manually ? subject.athlete?.value : undefined;
+  const club = draft.club ?? (chosen ? '' : (added?.club ?? ''));
   return (
     <div className="subject-editor">
       <label>
         Correct bib
         <input
-          value={'bib' in draft ? (draft.bib ?? '') : (subject.bibs?.[0]?.value ?? '')}
+          value={
+            'bib' in draft ? (draft.bib ?? '') : (added?.bib ?? subject.bibs?.[0]?.value ?? '')
+          }
           onChange={(event) => onChange({ ...draft, bib: event.target.value })}
         />
       </label>
@@ -97,24 +101,24 @@ export default function SubjectEditor({
       <label>
         {hasRoster ? 'Or enter a name' : 'Name'}
         <input
-          value={draft.athlete_name ?? ''}
+          value={draft.athlete_name ?? (chosen ? '' : (added?.name ?? ''))}
           placeholder={hasRoster ? 'Person absent from the roster' : 'Person’s name'}
           onChange={(event) => {
             const { roster_bib: _bib, roster_index: _index, ...rest } = draft;
-            onChange({ ...rest, athlete_name: event.target.value, club: draft.club ?? '' });
+            onChange({ ...rest, athlete_name: event.target.value, club });
           }}
         />
       </label>
       <label>
         Club (optional)
         <input
-          value={draft.club ?? ''}
+          value={club}
           onChange={(event) => onChange({ ...draft, club: event.target.value })}
         />
       </label>
       <small>
         {subject.added_manually
-          ? 'Added manually from the roster. No detected face is linked to this entry.'
+          ? 'No detected face is linked to this entry.'
           : 'Saving names this occurrence. Find matching faces afterward to assign it elsewhere.'}
       </small>
       {!subject.added_manually && (

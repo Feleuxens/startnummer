@@ -113,10 +113,15 @@ You can also give a detected face a name that is absent from the roster, or work
 without a roster entirely.
 A visible bib is not required.
 
-If the person was not detected, choose **Add person from roster**, select the
-athlete, and choose **Add to this photo**. This generates a caption suggestion
-without adding detection evidence and also works before analysis. Use **Remove
-added person** to reverse an accidental addition.
+### Add someone who was missed by detection
+
+Choose **Add person from roster** to select an athlete, or **Add person manually**
+to enter a name and an optional bib and club. Choose **Add to this photo**.
+This works before analysis and in albums without a roster.
+
+The entry generates a caption suggestion and belongs to this photo. It has no
+detected face to use for propagation. Select its row to make corrections or
+choose **Remove added person** to undo the addition.
 
 ### Override a name in captions
 

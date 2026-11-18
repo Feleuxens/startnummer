@@ -310,10 +310,10 @@ export default function BatchReview({
                     }, 'Caption suggestion refreshed. Manually edited captions were kept.')
                   }
                   onFindMatches={(index) => action(() => findMatches(selected, index))}
-                  onAddPerson={(rosterIndex) =>
+                  onAddPerson={(person) =>
                     action(async () => {
                       changes.requireSaved('Save current edits before adding a person.');
-                      const photo = await reviewApi.addPerson(batchId, selected, rosterIndex);
+                      const photo = await reviewApi.addPerson(batchId, selected, person);
                       await refresh();
                       setSubject((photo.analysis?.record.subjects.length ?? 1) - 1);
                     }, 'Person added. Review the generated caption before approving.')

@@ -778,7 +778,8 @@ export interface components {
             /** Revision */
             revision: number;
             /** Roster Index */
-            roster_index: number;
+            roster_index?: number | null;
+            person?: components["schemas"]["ManualPerson"] | null;
         };
         /** Administration */
         Administration: {
@@ -1484,6 +1485,21 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+        };
+        /** ManualPerson */
+        ManualPerson: {
+            /** Name */
+            name: string;
+            /**
+             * Bib
+             * @default
+             */
+            bib: string;
+            /**
+             * Club
+             * @default
+             */
+            club: string;
         };
         /**
          * NameOrder

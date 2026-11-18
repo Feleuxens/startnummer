@@ -326,11 +326,17 @@ class Services:
             photo = batch.photo(photo_id)
             if photo.revision != request.revision:
                 raise Conflict("This photo changed; reload before adding a person")
-            if not 0 <= request.roster_index < len(batch.roster.athletes):
-                raise WorkflowError("Choose a person from this batch's roster")
-            athlete = batch.roster.athletes[request.roster_index]
-            if not athlete.name.strip():
-                raise WorkflowError("The selected roster entry has no name")
+            if request.person is not None:
+                person = request.person
+                athlete = Athlete(name=person.name, bib=person.bib or None, club=person.club or None)
+                note = "Added manually during review"
+            else:
+                if not 0 <= request.roster_index < len(batch.roster.athletes):
+                    raise WorkflowError("Choose a person from this batch's roster")
+                athlete = batch.roster.athletes[request.roster_index].model_copy(deep=True)
+                if not athlete.name.strip():
+                    raise WorkflowError("The selected roster entry has no name")
+                note = "Added from the roster during review"
             if photo.analysis is None:
                 photo.analysis = AnalysisDocument(
                     record=AnalysisRecord(
@@ -344,7 +350,8 @@ class Services:
                 )
             if any(
                 subject.athlete
-                and (subject.athlete.value.name, subject.athlete.value.bib) == (athlete.name, athlete.bib)
+                and (subject.athlete.value.name, subject.athlete.value.bib or None)
+                == (athlete.name, athlete.bib or None)
                 for subject in photo.analysis.record.subjects
             ):
                 raise WorkflowError(
@@ -353,10 +360,10 @@ class Services:
             photo.analysis.record.subjects.append(
                 Subject(
                     athlete=Confident[Athlete](
-                        value=athlete.model_copy(deep=True),
+                        value=athlete,
                         confidence=1,
                         source=Source.MANUAL,
-                        note="Added from the roster during review",
+                        note=note,
                     ),
                     identity_edited=True,
                     added_manually=True,
@@ -470,7 +477,9 @@ class Services:
             subject.excluded_from_caption = correction.excluded_from_caption
         if fields & {"bib", "athlete_name", "roster_bib", "roster_index", "club"}:
             subject.identity_edited = True
-        if "bib" in fields:
+        if "bib" in fields and subject.added_manually and subject.athlete is not None:
+            subject.athlete.value = subject.athlete.value.model_copy(update={"bib": correction.bib or None})
+        elif "bib" in fields:
             subject.bibs = (
                 [Confident[str](value=correction.bib, confidence=1, source=Source.MANUAL)] if correction.bib else []
             )
@@ -494,8 +503,12 @@ class Services:
         elif "athlete_name" in fields:
             if not correction.athlete_name or not correction.athlete_name.strip():
                 raise WorkflowError("Enter a name or select a roster athlete")
+            added = subject.athlete.value if subject.added_manually and subject.athlete is not None else None
+            club = correction.club if "club" in fields else (added.club if added else None)
             subject.athlete = Confident[Athlete](
-                value=Athlete(name=correction.athlete_name.strip(), club=correction.club or None),
+                value=Athlete(
+                    name=correction.athlete_name.strip(), bib=added.bib if added else None, club=club or None
+                ),
                 confidence=1,
                 source=Source.MANUAL,
             )

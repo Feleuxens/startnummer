@@ -1369,6 +1369,41 @@ test('session expiry removes matching-face previews without losing the saved nam
   ).toEqual({ local: 0, session: 0 });
 });
 
+test('add an unlisted person before analysis without a roster', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL', { exact: true }).fill('http://gallery.test/album/a');
+  await page.getByLabel('No roster', { exact: true }).check();
+  await page.getByRole('button', { name: 'Import and preview' }).click();
+
+  const name = page.getByLabel('Person’s name', { exact: true });
+  const add = page.getByRole('button', { name: 'Add to this photo', exact: true });
+  await expect(name).toBeVisible();
+  await expect(add).toBeDisabled();
+  const panel = page.locator('.add-person').filter({ has: name });
+  await panel.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  await panel.screenshot({ path: test.info().outputPath('add-person-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('region', { name: 'Photo queue' }).getByRole('button').first().click();
+  await panel.screenshot({ path: test.info().outputPath('add-person-mobile.png') });
+  await name.fill('Taylor Visitor');
+  await page.getByLabel('Person’s bib (optional)', { exact: true }).fill('007');
+  await page.getByLabel('Person’s club (optional)', { exact: true }).fill('Away Club');
+  await add.click();
+  const caption = page.getByLabel('Reviewed caption');
+  await expect(caption).toHaveValue('Taylor Visitor (007, Away Club)');
+  await expect(page.getByLabel('Correct bib', { exact: true })).toHaveValue('007');
+  await expect(page.getByRole('button', { name: 'Find matching faces…' })).toHaveCount(0);
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.reload();
+  await expect(caption).toHaveValue('Taylor Visitor (007, Away Club)');
+  await page.getByRole('button', { name: /Taylor Visitor/ }).click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Remove added person', exact: true }).click();
+  await expect(caption).toHaveValue('');
+});
+
 test('add roster people without detection, generate captions, remove an entry, and reopen', async ({
   page,
 }) => {
@@ -1407,7 +1442,8 @@ test('add roster people without detection, generate captions, remove an entry, a
   );
   await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Name detected face 1' })).toHaveCount(0);
-  await page.getByLabel('Club (optional)', { exact: true }).fill('Example Club');
+  await expect(page.getByLabel('Club (optional)', { exact: true })).toHaveValue('Example Club');
+  await page.getByLabel('Club (optional)', { exact: true }).fill('Updated Club');
   await page.getByRole('button', { name: 'Save caption and corrections' }).click();
   await expect(
     page.getByRole('status').filter({ hasText: 'Changes saved for same.jpg.' }),
@@ -1417,7 +1453,7 @@ test('add roster people without detection, generate captions, remove an entry, a
   await page.getByRole('combobox', { name: 'Person to add', exact: true }).selectOption('1');
   await page.getByRole('button', { name: 'Add to this photo', exact: true }).click();
   await expect(page.getByLabel('Reviewed caption')).toHaveValue(
-    'Alex Example (12, Example Club) & Sam Visitor (Example Club) über 100m/over 100m | Example Meet',
+    'Alex Example (12, Updated Club) & Sam Visitor (Example Club) über 100m/over 100m | Example Meet',
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('region', { name: 'Photo queue' }).getByRole('button').first().click();
@@ -1432,7 +1468,7 @@ test('add roster people without detection, generate captions, remove an entry, a
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Remove added person', exact: true }).click();
   await expect(page.getByLabel('Reviewed caption')).toHaveValue(
-    'Alex Example (12, Example Club) über 100m/over 100m | Example Meet',
+    'Alex Example (12, Updated Club) über 100m/over 100m | Example Meet',
   );
   await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
   await expect(

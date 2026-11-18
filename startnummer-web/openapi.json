@@ -2064,16 +2064,32 @@
             "title": "Revision"
           },
           "roster_index": {
-            "type": "integer",
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Roster Index"
+          },
+          "person": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualPerson"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "revision",
-          "roster_index"
+          "revision"
         ],
         "title": "AddPerson"
       },
@@ -3976,6 +3992,34 @@
           "password"
         ],
         "title": "Login"
+      },
+      "ManualPerson": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "bib": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Bib",
+            "default": ""
+          },
+          "club": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Club",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ManualPerson"
       },
       "NameOrder": {
         "type": "string",
