@@ -69,11 +69,13 @@ export default function SubjectEditor({
                   roster_index: _index,
                   ...rest
                 } = draft;
-                onChange(
-                  event.target.value === ''
-                    ? rest
-                    : { ...rest, roster_index: Number(event.target.value) },
-                );
+                if (event.target.value === '') {
+                  onChange(rest);
+                  return;
+                }
+                const index = Number(event.target.value);
+                const bib = roster.athletes?.[index]?.bib;
+                onChange({ ...rest, roster_index: index, ...(bib ? { bib } : {}) });
               }}
             >
               <option value="">Choose an athlete</option>

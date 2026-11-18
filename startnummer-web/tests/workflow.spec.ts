@@ -1753,11 +1753,12 @@ test('edit several people and exclude a background person in one atomic save', a
   await page.getByLabel('Or enter a name', { exact: true }).fill('Visitor Example');
   await page.getByLabel('Club (optional)', { exact: true }).fill('Visitor Club');
   await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
-  await page.getByLabel('Correct bib', { exact: true }).fill('78');
+  await page.getByLabel('Correct bib', { exact: true }).fill('7');
   await page.getByRole('searchbox', { name: 'Search roster athletes', exact: true }).fill('Jordan');
   await page
     .getByRole('combobox', { name: 'Assign roster athlete', exact: true })
     .selectOption('2');
+  await expect(page.getByLabel('Correct bib', { exact: true })).toHaveValue('78');
   await page.getByLabel('Club (optional)', { exact: true }).fill('Changed Club');
   await page.locator('.subject-choice').nth(1).locator('.subject-row').click();
   await expect(page.getByLabel('Or enter a name', { exact: true })).toHaveValue('Visitor Example');
@@ -1795,6 +1796,7 @@ test('edit several people and exclude a background person in one atomic save', a
   const after = (await read()).batch.photos;
   expect(after[0]!.revision).toBe(before[0]!.revision + 1);
   const people = after[0]!.analysis!.record.subjects!;
+  expect(people[0]!.bibs?.map((bib) => bib.value)).toEqual(['78']);
   expect(people[0]!.athlete!.value.name).toBe('Jordan Example');
   expect(people[0]!.athlete!.value.club).toBe('Changed Club');
   expect(people[1]!.athlete!.value.name).toBe('Visitor Example');
