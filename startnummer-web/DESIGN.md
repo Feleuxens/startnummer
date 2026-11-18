@@ -57,6 +57,10 @@ discards them. One save applies all corrections atomically. Each subject has a
 reversible Exclude/Include control for caption inclusion; keep its evidence and
 face index intact. Preserve manually edited captions and offer the regenerated
 caption explicitly.
+Place identity fields directly below the selected person's row. Pin the photo's
+Save and Approve/Unapprove controls to the bottom of the viewport, with room for
+content to scroll above them. Hide them when the review is hidden or the mobile
+contact sheet is open. Keep their dimensions stable across action states.
 
 ## Temporary face review
 

@@ -1647,6 +1647,101 @@ async function subjectReviewBatch(page: Page) {
   return { batchId, read };
 }
 
+test('edit beneath the selected person and keep photo actions fixed while scrolling', async ({
+  page,
+}) => {
+  await subjectReviewBatch(page);
+  for (const index of ['1', '2']) {
+    await page.getByText('Add person from roster', { exact: true }).click();
+    await page.getByRole('combobox', { name: 'Person to add', exact: true }).selectOption(index);
+    await page.getByRole('button', { name: 'Add to this photo', exact: true }).click();
+    await expect(page.locator('.subject-item')).toHaveCount(Number(index) + 1);
+  }
+  const people = page.locator('.subject-item');
+  await page.getByRole('button', { name: 'Name detected face 1', exact: true }).click();
+  await expect(people.nth(0).locator(':scope > .subject-editor')).toBeVisible();
+  await expect(people.nth(1).locator('.subject-editor')).toHaveCount(0);
+  const row = await people.nth(0).locator('.subject-choice').boundingBox();
+  const fields = await people.nth(0).locator('.subject-editor').boundingBox();
+  expect(
+    row && fields && fields.y >= row.y + row.height && fields.y <= row.y + row.height + 16,
+  ).toBeTruthy();
+  await page.getByLabel('Or enter a name', { exact: true }).fill('Pending first person');
+  await people.nth(2).locator('.subject-row').click();
+  await expect(people.nth(2).locator(':scope > .subject-editor')).toBeVisible();
+  await page.getByLabel('Or enter a name', { exact: true }).fill('Pending third person');
+  await people.nth(0).locator('.subject-row').click();
+  await expect(page.getByLabel('Or enter a name', { exact: true })).toHaveValue(
+    'Pending first person',
+  );
+  const footer = page.locator('.editor-actions');
+  const save = page.getByRole('button', { name: 'Save caption and corrections', exact: true });
+  async function checkActions() {
+    const dimensions = await footer.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        position: getComputedStyle(element).position,
+        bottom: rect.bottom,
+        height: innerHeight,
+      };
+    });
+    expect(dimensions.position).toBe('fixed');
+    expect(Math.abs(dimensions.bottom - dimensions.height)).toBeLessThan(1);
+    for (const button of [
+      save,
+      page.getByRole('button', { name: /^(?:Unapprove|Approve) this photo$/, exact: true }),
+    ]) {
+      const box = await button.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(dimensions.height);
+      expect(box!.height).toBe(44);
+      expect(
+        await button.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return element.contains(
+            document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+          );
+        }),
+      ).toBe(true);
+    }
+  }
+  await checkActions();
+  await page.locator('.editor').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await checkActions();
+  await people.nth(0).locator('.subject-editor').scrollIntoViewIfNeeded();
+  await checkActions();
+  await page.screenshot({ path: test.info().outputPath('fixed-review-actions-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 780 });
+  await expect(footer).toBeHidden();
+  await page.getByRole('region', { name: 'Photo queue' }).getByRole('button').first().click();
+  await checkActions();
+  await people.nth(0).locator('.subject-editor').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('fixed-review-actions-mobile.png') });
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await checkActions();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await save.click();
+  await expect(save).toBeDisabled();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue(
+    /Pending first person.*Pending third person/,
+  );
+  await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Unapprove this photo', exact: true }),
+  ).toBeVisible();
+  await checkActions();
+  await page.getByRole('button', { name: 'Back to photos', exact: false }).click();
+  await expect(footer).toBeHidden();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(footer).toBeVisible();
+  await page.getByRole('button', { name: 'Account', exact: true }).click();
+  await expect(footer).toBeHidden();
+});
+
 test('edit several people and exclude a background person in one atomic save', async ({ page }) => {
   const { batchId, read } = await subjectReviewBatch(page);
   await page.getByText('Add person from roster', { exact: true }).click();

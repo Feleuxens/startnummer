@@ -62,7 +62,6 @@ export default function PhotoEditor({
     mark();
   };
   const discipline = record?.event.discipline?.value ?? '';
-  const currentSubject = subject == null ? null : subjects[subject];
 
   const updateSubject = (index: number, draft: SubjectDraft) => {
     setSubjectEdits((previous) => ({ ...previous, [index]: draft }));
@@ -245,66 +244,68 @@ export default function PhotoEditor({
             const name =
               draft?.athlete_name || chosen?.name || item.athlete?.value.name || 'Name not matched';
             return (
-              <div className="subject-choice" key={index}>
-                <button
-                  type="button"
-                  className={`subject-row ${subject === index ? 'selected' : ''}`}
-                  onClick={() => setSubject(subject === index ? null : index)}
-                >
-                  <span>{index + 1}</span>
-                  <div>
-                    <strong>{name}</strong>
-                    <small>
-                      {item.bibs
-                        ?.map(
-                          (bib) =>
-                            `${bib.value} · ${Math.round(bib.confidence * 100)}% · ${bib.source}`,
-                        )
-                        .join(' / ') || 'No bib read'}
-                    </small>
-                    {item.athlete && (
+              <div className="subject-item" key={index}>
+                <div className="subject-choice">
+                  <button
+                    type="button"
+                    className={`subject-row ${subject === index ? 'selected' : ''}`}
+                    aria-expanded={subject === index}
+                    onClick={() => setSubject(subject === index ? null : index)}
+                  >
+                    <span>{index + 1}</span>
+                    <div>
+                      <strong>{name}</strong>
                       <small>
-                        {Math.round(item.athlete.confidence * 100)}% · {item.athlete.source} ·{' '}
-                        {item.athlete.note}
+                        {item.bibs
+                          ?.map(
+                            (bib) =>
+                              `${bib.value} · ${Math.round(bib.confidence * 100)}% · ${bib.source}`,
+                          )
+                          .join(' / ') || 'No bib read'}
                       </small>
-                    )}
-                    {excluded && <small>Excluded from caption</small>}
-                    {draft && <small>Unsaved changes</small>}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  className="subject-exclusion"
-                  aria-label={`${excluded ? 'Include' : 'Exclude'} person ${index + 1} ${excluded ? 'in' : 'from'} caption`}
-                  onClick={() =>
-                    updateSubject(index, { ...draft, excluded_from_caption: !excluded })
-                  }
-                >
-                  {excluded ? 'Include' : 'Exclude'}
-                </button>
+                      {item.athlete && (
+                        <small>
+                          {Math.round(item.athlete.confidence * 100)}% · {item.athlete.source} ·{' '}
+                          {item.athlete.note}
+                        </small>
+                      )}
+                      {excluded && <small>Excluded from caption</small>}
+                      {draft && <small>Unsaved changes</small>}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="subject-exclusion"
+                    aria-label={`${excluded ? 'Include' : 'Exclude'} person ${index + 1} ${excluded ? 'in' : 'from'} caption`}
+                    onClick={() =>
+                      updateSubject(index, { ...draft, excluded_from_caption: !excluded })
+                    }
+                  >
+                    {excluded ? 'Include' : 'Exclude'}
+                  </button>
+                </div>
+                {subject === index && (
+                  <SubjectEditor
+                    subject={item}
+                    roster={roster}
+                    draft={subjectEdits[index] ?? {}}
+                    onChange={(draft) => updateSubject(index, draft)}
+                    canFindMatches={
+                      !busy &&
+                      !dirty &&
+                      faces.available &&
+                      faces.propagation_available &&
+                      item.athlete?.source === 'manual' &&
+                      !!faces.photos[photo.id]?.some((face) => face.subject === index)
+                    }
+                    onFindMatches={() => void onFindMatches(index)}
+                    canRemove={!busy && !dirty}
+                    onRemove={() => void onRemovePerson(index)}
+                  />
+                )}
               </div>
             );
           })}
-          {currentSubject && subject != null && (
-            <SubjectEditor
-              key={subject}
-              subject={currentSubject}
-              roster={roster}
-              draft={subjectEdits[subject] ?? {}}
-              onChange={(draft) => updateSubject(subject, draft)}
-              canFindMatches={
-                !busy &&
-                !dirty &&
-                faces.available &&
-                faces.propagation_available &&
-                currentSubject.athlete?.source === 'manual' &&
-                !!faces.photos[photo.id]?.some((face) => face.subject === subject)
-              }
-              onFindMatches={() => void onFindMatches(subject)}
-              canRemove={!busy && !dirty}
-              onRemove={() => void onRemovePerson(subject)}
-            />
-          )}
         </section>
         {record && (
           <label>

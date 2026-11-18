@@ -78,6 +78,8 @@ evidence. Correct names, bibs, clubs, or disciplines, then save your changes.
 Switch between faces or subjects to edit several people before saving. Pending
 corrections stay with each person; **Save caption and corrections** saves them
 together.
+Identity fields open directly below the selected person's row. Save and
+Approve/Unapprove stay at the bottom of the screen while you scroll.
 Previous/next buttons below the image follow the current filter and stop at each
 end. Leaving unsaved edits requires confirmation.
 

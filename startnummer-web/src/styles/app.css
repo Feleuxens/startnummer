@@ -13,6 +13,8 @@
   --gap: 14px;
   --pad: 22px;
   --radius: 12px;
+  --sidebar-width: 210px;
+  --review-actions-space: 88px;
   font:
     14px/1.5 Inter,
     system-ui,
@@ -166,7 +168,7 @@ small {
 .app-shell {
   min-height: 100dvh;
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 .sidebar {
   padding: 26px 18px;
@@ -237,6 +239,9 @@ nav button span {
 }
 .content {
   padding: var(--pad);
+}
+.review-content {
+  padding-bottom: calc(var(--review-actions-space) + env(safe-area-inset-bottom, 0px) + var(--pad));
 }
 .title-row {
   display: flex;
@@ -757,7 +762,8 @@ button.face-box.chosen {
   gap: 16px;
   max-height: 72dvh;
   overflow-y: auto;
-  padding: 0 5px 8px 0;
+  padding: 0 5px var(--review-actions-space) 0;
+  scroll-padding-bottom: var(--review-actions-space);
   min-width: 0;
 }
 .editor-fields {
@@ -800,6 +806,9 @@ button.face-box.chosen {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.subject-item {
+  margin-top: 8px;
 }
 .subject-choice .subject-row {
   flex: 1;
@@ -860,10 +869,15 @@ button.face-box.chosen {
   align-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
-  position: sticky;
+  position: fixed;
   bottom: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 20;
+  justify-content: flex-end;
   background: var(--ground);
-  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  padding: 12px var(--pad) calc(12px + env(safe-area-inset-bottom, 0px));
 }
 .editor-actions > button {
   flex: 0 0 auto;
@@ -979,8 +993,11 @@ button.face-box.chosen {
   display: none;
 }
 @media (max-width: 1200px) {
+  :root {
+    --sidebar-width: 170px;
+  }
   .app-shell {
-    grid-template-columns: 170px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
   .sidebar {
     padding: 22px 12px;
@@ -1006,6 +1023,9 @@ button.face-box.chosen {
   }
 }
 @media (max-width: 900px) {
+  :root {
+    --sidebar-width: 0px;
+  }
   .app-shell {
     display: block;
   }
@@ -1048,6 +1068,7 @@ button.face-box.chosen {
 @media (max-width: 640px) {
   :root {
     --pad: 16px;
+    --review-actions-space: 136px;
   }
   button {
     min-height: 44px;
@@ -1105,6 +1126,12 @@ button.face-box.chosen {
   }
   .photo-detail {
     display: none;
+  }
+  .editor-actions {
+    justify-content: center;
+  }
+  .review-content:not(.detail-open) {
+    padding-bottom: var(--pad);
   }
   .show-detail .contact-sheet {
     display: none;

@@ -171,7 +171,10 @@ export default function BatchReview({
   const eligibleUnapproved = photos.filter((p) => eligible(p) && !approved(p));
   return (
     <>
-      <div hidden={!active} className={`content ${mobileDetail ? 'detail-open' : ''}`}>
+      <div
+        hidden={!active}
+        className={`content review-content ${mobileDetail ? 'detail-open' : ''}`}
+      >
         {messages}
         <>
           <ReviewHeader
