@@ -11,6 +11,7 @@ const editable = (settings: Schema['RuntimeSettings']) => ({
   revision: settings.revision ?? 0,
   file: String(settings.max_file_bytes / MiB),
   batch: String(settings.max_batch_bytes / MiB),
+  concurrency: String(settings.max_concurrent_jobs ?? 1),
   minutes: String(settings.session_ttl / 60),
 });
 
@@ -64,6 +65,7 @@ export default function Administration({
             revision: form.revision,
             max_file_bytes: Math.round(Number(form.file) * MiB),
             max_batch_bytes: Math.round(Number(form.batch) * MiB),
+            max_concurrent_jobs: Number(form.concurrency),
             session_ttl: Math.round(Number(form.minutes) * 60),
           },
         }),
@@ -72,9 +74,7 @@ export default function Administration({
       dirty.current = false;
       onDirty(integrationDirty.current || accountsDirty.current);
       setForm(editable(saved));
-      setNotice(
-        'Settings saved. Import limits apply to new imports; the lifetime applies to new face sessions.',
-      );
+      setNotice('Settings saved.');
       await refresh();
     } catch (failure) {
       setError(message(failure));
@@ -155,7 +155,7 @@ export default function Administration({
             />
           </section>
           <section aria-labelledby="settings-title">
-            <h2 id="settings-title">Import and face review</h2>
+            <h2 id="settings-title">Import, analysis, and face review</h2>
             <form onSubmit={(event) => void save(event)}>
               <fieldset
                 disabled={busy || !data.database}
@@ -194,6 +194,25 @@ export default function Administration({
                     }}
                   />
                 </label>
+                <label>
+                  Maximum concurrent albums
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    aria-describedby="analysis-concurrency-help"
+                    value={form.concurrency}
+                    onChange={(event) => {
+                      dirty.current = true;
+                      setForm({ ...form, concurrency: event.target.value });
+                    }}
+                  />
+                </label>
+                <p id="analysis-concurrency-help" className="muted">
+                  Albums wait in the queue until a slot opens. Lowering the limit lets running
+                  albums finish.
+                </p>
                 <label>
                   Face-session lifetime (minutes)
                   <input

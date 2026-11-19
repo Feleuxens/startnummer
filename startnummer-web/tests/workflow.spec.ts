@@ -399,12 +399,17 @@ test('administrator sees service status and saves revision-checked settings', as
   await expect(integrations.getByRole('status')).toContainText('No descriptions were written');
   const file = page.getByRole('spinbutton', { name: 'Maximum photo size (MiB)', exact: true });
   const batch = page.getByRole('spinbutton', { name: 'Maximum batch size (MiB)', exact: true });
+  const concurrency = page.getByRole('spinbutton', {
+    name: 'Maximum concurrent albums',
+    exact: true,
+  });
   const lifetime = page.getByRole('spinbutton', {
     name: 'Face-session lifetime (minutes)',
     exact: true,
   });
   await expect(file).toHaveValue('50');
   await expect(lifetime).toHaveValue('60');
+  await expect(concurrency).toHaveValue('1');
   const services = page.getByRole('region', { name: 'Services', exact: true });
   await expect(services).toContainText('Writable');
   await expect(services).toContainText('idle');
@@ -412,6 +417,7 @@ test('administrator sees service status and saves revision-checked settings', as
   await file.fill('2');
   await batch.fill('8');
   await lifetime.fill('30');
+  await concurrency.fill('2');
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: /^Saved albums/ }).click();
   await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
@@ -421,10 +427,11 @@ test('administrator sees service status and saves revision-checked settings', as
   expect(saved.max_file_bytes).toBe(2 * 1024 * 1024);
   expect(saved.max_batch_bytes).toBe(8 * 1024 * 1024);
   expect(saved.session_ttl).toBe(1800);
+  expect(saved.max_concurrent_jobs).toBe(2);
   await lifetime.fill('20');
   const concurrent = await page.request.put('/api/admin/settings', {
     headers: { 'X-Requested-With': 'Startnummer' },
-    data: { ...saved, session_ttl: 900 },
+    data: { ...saved, session_ttl: 900, max_concurrent_jobs: 3 },
   });
   expect(concurrent.ok()).toBe(true);
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
@@ -432,17 +439,17 @@ test('administrator sees service status and saves revision-checked settings', as
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Reload settings', exact: true }).click();
   await expect(lifetime).toHaveValue('15');
-  await page.screenshot({
+  await expect(concurrency).toHaveValue('3');
+  const settingsPanel = page.getByRole('region', { name: 'Import, analysis, and face review' });
+  await settingsPanel.screenshot({
     path: test.info().outputPath('administration-desktop.png'),
-    fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page.screenshot({
+  await settingsPanel.screenshot({
     path: test.info().outputPath('administration-mobile.png'),
-    fullPage: true,
   });
   const current = (await (await page.request.get('/api/admin')).json()).settings;
   expect(

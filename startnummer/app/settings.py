@@ -7,6 +7,8 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from startnummer.core.batch import WorkflowError
 
+DEFAULT_MAX_CONCURRENT_JOBS = 1
+
 
 def required_setting(name):
     value = os.environ.get(name)
@@ -52,6 +54,7 @@ class Settings:
     max_file_bytes: int = 50 * 1024 * 1024
     max_batch_bytes: int = 2 * 1024 * 1024 * 1024
     session_ttl: int = 3600
+    max_concurrent_jobs: int = DEFAULT_MAX_CONCURRENT_JOBS
 
     @classmethod
     def from_env(cls):

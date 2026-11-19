@@ -4951,6 +4951,12 @@
             "maximum": 86400.0,
             "minimum": 60.0,
             "title": "Session Ttl"
+          },
+          "max_concurrent_jobs": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Max Concurrent Jobs",
+            "default": 1
           }
         },
         "additionalProperties": false,

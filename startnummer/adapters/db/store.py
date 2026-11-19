@@ -44,13 +44,13 @@ class Store:
             row.revision, row.document = current + 1, {**previous, **document}
             return row.revision
 
-    def installation_settings(self, fallback_owner_id, *, session=None):
+    def installation_settings(self, fallback_owner_id=None, *, session=None):
         if session is None:
             with self.transaction() as current:
                 return self.installation_settings(fallback_owner_id, session=current)
         instance = session.get(InstanceRow, 1)
         owner = instance.admin_owner_id if instance and instance.admin_owner_id else fallback_owner_id
-        return self.runtime_settings(owner, session=session)
+        return self.runtime_settings(owner, session=session) if owner is not None else (0, {})
 
     @contextmanager
     def transaction(self, owner_id: UUID | None = None) -> Iterator[Session]:

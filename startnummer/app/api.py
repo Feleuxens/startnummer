@@ -45,7 +45,13 @@ from startnummer.app.contracts import (
     Selected,
 )
 from startnummer.app.integrations import Integrations
-from startnummer.app.operations import administration, database_healthy, effective_settings, storage_healthy
+from startnummer.app.operations import (
+    administration,
+    database_healthy,
+    effective_settings,
+    runtime_settings,
+    storage_healthy,
+)
 from startnummer.app.services import ImportRejected, InputPhoto, Services, import_size_limit, run
 from startnummer.app.settings import Settings
 from startnummer.app.uploads import ROSTER_FILE_LIMIT, ROSTER_PREVIEW_PATH, upload_router
@@ -169,8 +175,8 @@ def create_app(
 
     @app.put("/api/admin/settings", response_model=RuntimeSettings)
     def update_settings(body: RuntimeSettings, user: Admin):
-        revision = store.save_settings(user.id, body.revision, body.model_dump(exclude={"revision"}))
-        return body.model_copy(update={"revision": revision})
+        store.save_settings(user.id, body.revision, body.model_dump(exclude={"revision"}, exclude_unset=True))
+        return runtime_settings(store, settings, owner_id=user.id)
 
     @app.get("/api/admin/integrations/chevereto", response_model=IntegrationStatus)
     def integration_status(user: Admin):

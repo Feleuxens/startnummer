@@ -27,7 +27,7 @@ def test_settings_are_persistent_owner_scoped_and_revision_checked(environment):
     service, _ = environment
     owner = service.settings.owner_id
     current = runtime_settings(service.store, service.settings)
-    assert current.revision == 0 and current.session_ttl == 3600
+    assert current.revision == 0 and current.session_ttl == 3600 and current.max_concurrent_jobs == 1
     document = current.model_copy(update={"session_ttl": 120}).model_dump(exclude={"revision"})
     assert service.store.save_settings(owner, 0, document) == 1
     assert effective_settings(service.store, service.settings).session_ttl == 120
@@ -38,6 +38,8 @@ def test_settings_are_persistent_owner_scoped_and_revision_checked(environment):
         {**document, "session_ttl": 0},
         {**document, "database_url": "not-editable"},
         {**document, "max_batch_bytes": 1},
+        {**document, "max_concurrent_jobs": 0},
+        {**document, "max_concurrent_jobs": 1.5},
     ]:
         with pytest.raises(ValidationError):
             RuntimeSettings.model_validate(invalid)
@@ -91,6 +93,7 @@ def test_admin_authentication_settings_limits_and_health_without_secrets(environ
             assert secret not in response.text
         body = response.json()["settings"]
         body["session_ttl"] = 180
+        body["max_concurrent_jobs"] = 2
         assert client.put("/api/admin/settings", json=body).status_code == 403
         assert (
             client.put("/api/admin/settings", json={**body, "owner_id": str(uuid4())}, headers=headers).status_code
@@ -99,6 +102,10 @@ def test_admin_authentication_settings_limits_and_health_without_secrets(environ
         assert client.put("/api/admin/settings", json=body, headers=headers).json()["revision"] == 1
         assert client.put("/api/admin/settings", json=body, headers=headers).status_code == 409
         assert runtime_settings(service.store, service.settings).session_ttl == 180
+        body.pop("max_concurrent_jobs")
+        body["revision"] = 1
+        update = client.put("/api/admin/settings", json=body, headers=headers)
+        assert update.json()["max_concurrent_jobs"] == 2
 
 
 def test_runtime_limits_are_used_by_imports(environment):

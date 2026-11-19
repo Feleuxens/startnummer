@@ -1840,6 +1840,11 @@ export interface components {
             max_batch_bytes: number;
             /** Session Ttl */
             session_ttl: number;
+            /**
+             * Max Concurrent Jobs
+             * @default 1
+             */
+            max_concurrent_jobs: number;
         };
         /** Selected */
         Selected: {

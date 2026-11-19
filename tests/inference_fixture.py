@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from pathlib import Path
 from uuid import uuid4
 
 from startnummer.adapters.cache import DEFAULT_CACHE
@@ -43,6 +44,23 @@ def retaining_models(cache_mb, faces_enabled):
     DEFAULT_CACHE.set_max_mb_bytes(cache_mb)
     DEFAULT_CACHE._decode = decode
     return RetainingDetector(), Ocr(), RetainingFaces() if faces_enabled else None
+
+
+class GatedDetector(RetainingDetector):
+    def __init__(self, gates, started):
+        self.gates, self.started = gates, started
+
+    def detect(self, path):
+        photo = Path(path).stem
+        self.started.put((photo, os.getpid()))
+        if not self.gates[photo].wait(timeout=20):
+            raise RuntimeError("Synthetic album was not released")
+        return super().detect(path)
+
+
+def gated_models(gates, started, cache_mb, faces_enabled):
+    _, ocr, faces = retaining_models(cache_mb, faces_enabled)
+    return GatedDetector(gates, started), ocr, faces
 
 
 def failed_models(*args):

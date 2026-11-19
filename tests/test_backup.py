@@ -41,7 +41,7 @@ def test_roundtrip_shared_photos_review_publication_settings_and_no_face_data(en
     selected = Selection(photo_id=photo.id, revision=photo.revision)
     service.approve(owner, batch_id, [selected])
     service.apply(owner, batch_id, [selected])
-    options = runtime_settings(service.store, service.settings)
+    options = runtime_settings(service.store, service.settings).model_copy(update={"max_concurrent_jobs": 2})
     service.store.save_settings(owner, 0, options.model_dump(exclude={"revision"}))
     service.sessions.put(owner, batch_id, {str(photo.id): [{"box": [1, 2, 3, 4], "group": "temporary-only"}]})
     before = service.store.get(owner, batch_id)

@@ -33,16 +33,23 @@ The worker has its own authenticated health check. Health checks do not load
 models or test the gallery connection. Analyze a small album to check inference;
 use **Test connection** in Administration to check Chevereto reads.
 
-## Change import and face-review limits
+## Change import, analysis, and face-review limits
 
-Open **Administration → Import and face review**, edit the values, and choose
+Open **Administration → Import, analysis, and face review**, edit the values, and choose
 **Save settings**.
 
-| Setting               | Default    | Applies to        |
-| --------------------- | ---------- | ----------------- |
-| Maximum photo size    | 50 MiB     | New imports       |
-| Maximum batch size    | 2 GiB      | New imports       |
-| Face-session lifetime | 60 minutes | New face sessions |
+| Setting                   | Default    | Applies to        |
+| ------------------------- | ---------- | ----------------- |
+| Maximum photo size        | 50 MiB     | New imports       |
+| Maximum batch size        | 2 GiB      | New imports       |
+| Maximum concurrent albums | 1          | Queued analysis   |
+| Face-session lifetime     | 60 minutes | New face sessions |
+
+The worker reads the album limit while it dispatches queued jobs. Lowering the
+limit lets running albums finish and holds queued albums until a slot opens.
+Each running album has its own inference process, model memory, decoded-image
+cache, and temporary files. Budget RAM, accelerator memory, and temporary storage
+for the number of albums that can run together.
 
 Existing face sessions keep their expiry. If another browser saved settings first,
 reload the saved values before editing again. For larger imports, adjust the
@@ -162,4 +169,4 @@ face selectors during interactive review.
 
 Stopping a worker interrupts analysis and clears face sessions; saved captions
 remain. An API restart can retain a compatible worker's face sessions. Run one
-worker per installation until routing for temporary face sessions is available.
+worker service per installation. Use **Maximum concurrent albums** to run analyses in parallel.

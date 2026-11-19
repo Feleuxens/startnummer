@@ -1,10 +1,12 @@
 """Album inference with a disposable process and a geometry-only review result."""
 
 import ctypes
+import fcntl
 import multiprocessing
 import os
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable
 from functools import partial
@@ -97,11 +99,18 @@ def preload_gpu_runtime():
 
 def load_models(cache_mb, faces_enabled, *, backend="auto"):
     # Native runtimes and their retained buffers belong only to the inference child.
+    root = Path(os.environ.get("STARTNUMMER_MODEL_ROOT", "~/.cache/startnummer/models")).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    # Model libraries can download or compile into shared paths during initialization.
+    with (root / ".model-load.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _load_models(root, cache_mb, faces_enabled, backend)
+
+
+def _load_models(root, cache_mb, faces_enabled, backend):
     from startnummer.adapters.models import pose_model
     from startnummer.adapters.runtime import openvino_session, prepare_runtime
 
-    root = Path(os.environ.get("STARTNUMMER_MODEL_ROOT", "~/.cache/startnummer/models")).expanduser()
-    root.mkdir(parents=True, exist_ok=True)
     try:
         runtime = prepare_runtime(backend, root)
         from startnummer.adapters.detect.yolo import YoloDetector
@@ -209,7 +218,11 @@ class ProcessAnalyzer:
         self.backend = Backend(backend)
         self.cache_mb, self.faces_enabled = cache_mb, faces_enabled
         self.factory = factory if factory is not None else partial(load_models, backend=self.backend)
-        self.process = None
+        self._current = threading.local()
+
+    @property
+    def process(self):
+        return getattr(self._current, "process", None)
 
     def __call__(self, album, paths, *, entry_list, on_progress):
         if self.process is not None:
@@ -231,7 +244,7 @@ class ProcessAnalyzer:
             ),
             kwargs={"lifetime": lifetime},
         )
-        self.process = process
+        self._current.process = process
         started = False
         progress = (0, len(paths), f"loading models ({self.backend})")
         next_check = 0.0
@@ -285,5 +298,5 @@ class ProcessAnalyzer:
                         raise WorkflowError("Inference process could not be stopped")
             finally:
                 lifetime_writer.close()
+                self._current.process = None
             process.close()
-            self.process = None

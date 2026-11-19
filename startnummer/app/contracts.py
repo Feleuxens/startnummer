@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from startnummer.app.settings import DEFAULT_MAX_CONCURRENT_JOBS
 from startnummer.core.batch import Batch, DescriptionWrite, Job, Publication
 from startnummer.core.description import caption_name_key
 from startnummer.core.interfaces import EntryList
@@ -163,6 +164,7 @@ class RuntimeSettings(Input):
     max_file_bytes: int = Field(ge=1024 * 1024, le=500 * 1024 * 1024)
     max_batch_bytes: int = Field(ge=1024 * 1024, le=100 * 1024 * 1024 * 1024)
     session_ttl: int = Field(ge=60, le=86400)
+    max_concurrent_jobs: int = Field(default=DEFAULT_MAX_CONCURRENT_JOBS, ge=1, strict=True)
 
     @model_validator(mode="after")
     def batch_contains_file(self):

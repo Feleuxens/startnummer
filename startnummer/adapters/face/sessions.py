@@ -35,7 +35,9 @@ class FaceSessions:
         self._lock = threading.RLock()
         self._undo: dict[tuple[str, str], tuple[str, str, list[dict]]] = {}
 
-    def put(self, owner_id: UUID, batch_id: UUID, faces: dict, *, run_id: str | None = None) -> None:
+    def put(
+        self, owner_id: UUID, batch_id: UUID, faces: dict, *, run_id: str | None = None, ttl: int | None = None
+    ) -> None:
         with self._lock:
             self._prune()
             key = (str(owner_id), str(batch_id))
@@ -43,12 +45,13 @@ class FaceSessions:
             self._discard(key)
             if not faces:
                 return
+            lifetime = self.ttl if ttl is None else ttl
             self._items[key] = (
-                time.monotonic() + self.ttl,
+                time.monotonic() + lifetime,
                 secrets.token_urlsafe(24),
                 faces,
                 run_id,
-                time.time() + self.ttl,
+                time.time() + lifetime,
             )
 
     def _discard(self, key):

@@ -118,14 +118,17 @@ session-only, refuses later edits, and never restores approval.
 
 ## Protect queue completion
 
-One queue worker processes album-wide jobs. PostgreSQL leases and fencing tokens
-prevent expired claims from saving results. Heartbeats continue during online
-backups. Worker cancellation and shutdown interrupt staging/inference and discard
-review sessions.
+One queue worker dispatches album-wide jobs up to the limit set in Administration.
+Each active job uses its own disposable inference process. Model initialization
+takes a shared lock because model runtimes can download or compile files into
+the same cache. The worker keeps one owner- and batch-scoped face-session service
+for all completed albums.
 
-The queue can claim separate albums concurrently, but multiple workers are not
-exposed as an operational setting: review requests need routing to the worker
-that owns each batch's temporary session first.
+PostgreSQL leases and fencing tokens prevent expired claims from saving results.
+Heartbeats continue during online backups. Cancellation interrupts the affected
+job and ends its review session. Worker shutdown interrupts active jobs and
+discards all of that worker's temporary sessions. Running several worker services
+would require routing review requests to the service that owns each session.
 
 ## Publish conditionally
 

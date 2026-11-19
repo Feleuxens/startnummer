@@ -9,6 +9,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from queue import SimpleQueue
 from tempfile import TemporaryDirectory
 from uuid import UUID
 
@@ -21,6 +22,7 @@ from startnummer.adapters.runtime import Backend, BackendUnavailable
 from startnummer.app.captions import caption_overrides
 from startnummer.app.inference import InlineAnalyzer, ProcessAnalyzer
 from startnummer.app.services import Services, run
+from startnummer.app.settings import DEFAULT_MAX_CONCURRENT_JOBS
 from startnummer.core.batch import AnalysisDocument, Conflict, Job, WorkflowError
 from startnummer.core.enums import Status
 from startnummer.core.record import AnalysisRecord
@@ -49,14 +51,54 @@ class Worker:
         self.analyzer = analyzer if analyzer is not None else InlineAnalyzer(detector, ocr, faces)
         self.lease_seconds = lease_seconds
         self.stopped = stopped if stopped is not None else threading.Event()
-        self.state = "idle"
+        self._active = 0
+        self._active_lock = threading.Lock()
+
+    @property
+    def state(self):
+        with self._active_lock:
+            return "busy" if self._active else "idle"
 
     def run_once(self) -> bool:
         job = self.store.claim(self.lease_seconds)
         if job is None:
             self.sessions.expire()
             return False
-        self.state = "busy"
+        self._run_job(job)
+        return True
+
+    def run(self):
+        running = []
+        failures = SimpleQueue()
+
+        def process(job):
+            try:
+                self._run_job(job)
+            except BaseException as exc:
+                failures.put(exc)
+                self.stopped.set()
+
+        try:
+            while not self.stopped.is_set():
+                running = [thread for thread in running if thread.is_alive()]
+                _, settings = self.store.installation_settings()
+                limit = settings.get("max_concurrent_jobs", DEFAULT_MAX_CONCURRENT_JOBS)
+                if len(running) < limit and not self.stopped.is_set():
+                    job = self.store.claim(self.lease_seconds)
+                    if job is not None:
+                        thread = threading.Thread(target=process, args=(job,))
+                        thread.start()
+                        running.append(thread)
+                        continue
+                self.stopped.wait(1)
+        finally:
+            self.stopped.set()
+            for thread in running:
+                thread.join()
+        if not failures.empty():
+            raise failures.get_nowait()
+
+    def _run_job(self, job):
         stopped = threading.Event()
         lost = threading.Event()
         progress = {"completed": 0, "phase": "staging"}
@@ -72,19 +114,24 @@ class Worker:
                     return
 
         renewal = threading.Thread(target=heartbeat, daemon=True)
-        renewal.start()
+        with self._active_lock:
+            self._active += 1
         try:
-            self._execute(job, progress, lost)
-        except Exception as exc:
-            self.sessions.finish(job.owner_id, job.batch_id, run_id=str(job.lease_token))
-            self.store.fail(
-                job, str(exc) if isinstance(exc, BackendUnavailable) else f"Analysis job failed ({type(exc).__name__})"
-            )
+            renewal.start()
+            try:
+                self._execute(job, progress, lost)
+            except Exception as exc:
+                self.sessions.finish(job.owner_id, job.batch_id, run_id=str(job.lease_token))
+                self.store.fail(
+                    job,
+                    str(exc) if isinstance(exc, BackendUnavailable) else f"Analysis job failed ({type(exc).__name__})",
+                )
         finally:
             stopped.set()
-            renewal.join(timeout=5)
-            self.state = "idle"
-        return True
+            if renewal.ident is not None:
+                renewal.join(timeout=5)
+            with self._active_lock:
+                self._active -= 1
 
     def _execute(self, job: Job, progress, lost):
         batch = self.store.get(job.owner_id, job.batch_id)
@@ -149,8 +196,9 @@ class Worker:
                 geometry.pop(str(photo_id), None)
             # Hold the batch lock while exposing face geometry so completion
             # cannot recreate a session that review has already closed.
-            self.sessions.ttl = options.get("session_ttl", self.sessions.ttl)
-            self.sessions.put(job.owner_id, job.batch_id, geometry, run_id=str(job.lease_token))
+            self.sessions.put(
+                job.owner_id, job.batch_id, geometry, run_id=str(job.lease_token), ttl=options.get("session_ttl")
+            )
 
         self.store.complete(job, merge)
 
@@ -282,9 +330,7 @@ def main():
         if args.once:
             worker.run_once()
         else:
-            while not stopped.is_set():
-                if not worker.run_once():
-                    stopped.wait(1)
+            worker.run()
     except KeyboardInterrupt:
         pass
     finally:
