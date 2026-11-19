@@ -24,6 +24,7 @@ def result_discipline(heading: str) -> AthleticsDiscipline | None:
     labels = {d.de.casefold(): d for d in AthleticsDiscipline if d.de}
     labels.update({d.value.casefold(): d for d in AthleticsDiscipline if re.fullmatch(r"(?:[34]x)?\d+m", d.value)})
     labels["kugelstoß".casefold()] = AthleticsDiscipline.SHOT_PUT
+    labels["schlagballwurf"] = AthleticsDiscipline.BALL
     for label in sorted(labels, key=len, reverse=True):
         if text == label or text.startswith(label + " ") or text.startswith(label + ","):
             return labels[label]

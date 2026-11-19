@@ -50,6 +50,46 @@ def test_competitor_pages_keep_existing_names_bibs_and_disciplines(bib):
     assert roster.competition == ""
 
 
+@pytest.mark.parametrize(
+    "html",
+    [
+        competitor_row(events=("60M", "60H")),
+        result_section("60m Männliche Jugend U20 Finale", result_row())
+        + result_section("60m Hürden Männliche Jugend U20 Finale", result_row()),
+    ],
+    ids=["competitoroverview", "resultoverview"],
+)
+def test_rosters_distinguish_60m_flat_from_60m_hurdles(html):
+    roster = LeichtathletikDeEntryListParser().parse_content(html)
+    assert len(roster.athletes) == 1
+    assert roster.athletes[0].entered_events == ["60m", "60mH"]
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        (("50M", "75M", "80M", "80H"), ["50m", "75m", "80m", "80mH"]),
+        (
+            ("4X5", "4X7", "4X1", "4X2", "4X4", "3X8", "3X1"),
+            [
+                "4x50m",
+                "4x75m",
+                "4x100m",
+                "4x200m",
+                "4x400m",
+                "3x800m",
+                "3x1000m",
+            ],
+        ),
+        (("4x1", "WEZ", "SCH", "1G", "3G"), ["4x100m", "long_jump", "ball", "walking", "walking"]),
+    ],
+    ids=["flat-races-and-hurdles", "uppercase-relays", "discipline-aliases"],
+)
+def test_competitor_pages_read_supported_discipline_codes(codes, expected):
+    roster = LeichtathletikDeEntryListParser().parse_content(competitor_row(events=codes))
+    assert roster.athletes[0].entered_events == expected
+
+
 def test_results_read_the_bib_not_rank_and_combine_repeated_events():
     roster = LeichtathletikDeEntryListParser().parse_content(results_html())
     assert len(roster.athletes) == 1
@@ -156,6 +196,10 @@ def test_malformed_result_rows_fail_instead_of_becoming_incorrect_roster_entries
 @pytest.mark.parametrize(
     ("heading", "expected"),
     [
+        ("50m Kinder M11 Finale", "50m"),
+        ("75m Jugend W13 Finale", "75m"),
+        ("80m Finale", "80m"),
+        ("80m Hürden Jugend M15 Finale", "80mH"),
         ("100m W, WJU20 Zeitläufe", "100m"),
         ("1500m M U20", "1500m"),
         ("100m Hürden Frauen", "100mH"),
@@ -168,6 +212,7 @@ def test_malformed_result_rows_fail_instead_of_becoming_incorrect_roster_entries
         ("Kugelstoß U20", "shot_put"),
         ("Stabhochsprung U20", "pole_vault"),
         ("Dreisprung U20", "triple_jump"),
+        ("Schlagballwurf Kinder M11 Finale", "ball"),
         ("Siebenkampf Frauen", None),
         ("90m Hürden U16", None),
         ("Unbekannter Wettbewerb", None),

@@ -12,6 +12,10 @@ from startnummer.core.models import Athlete
 from startnummer.core.sports.athletics import AthleticsDiscipline
 
 DISCIPLINE_ABBREVIATIONS: dict[str, AthleticsDiscipline] = {
+    "50M": AthleticsDiscipline.M_50,
+    "60M": AthleticsDiscipline.M_60,
+    "75M": AthleticsDiscipline.M_75,
+    "80M": AthleticsDiscipline.M_80,
     "100": AthleticsDiscipline.M_100,
     "150": AthleticsDiscipline.M_150,
     "200": AthleticsDiscipline.M_200,
@@ -42,6 +46,7 @@ DISCIPLINE_ABBREVIATIONS: dict[str, AthleticsDiscipline] = {
     "2KH": AthleticsDiscipline.STEEPLECHASE,
     "3KH": AthleticsDiscipline.STEEPLECHASE,
     "WEI": AthleticsDiscipline.LONG_JUMP,
+    "WEZ": AthleticsDiscipline.LONG_JUMP,
     "DRE": AthleticsDiscipline.TRIPLE_JUMP,
     "HOC": AthleticsDiscipline.HIGH_JUMP,
     "STA": AthleticsDiscipline.POLE_VAULT,
@@ -50,12 +55,16 @@ DISCIPLINE_ABBREVIATIONS: dict[str, AthleticsDiscipline] = {
     "DIS": AthleticsDiscipline.DISCUS,
     "HAM": AthleticsDiscipline.HAMMER,
     "BAL": AthleticsDiscipline.BALL,
+    "SCH": AthleticsDiscipline.BALL,
+    "1G": AthleticsDiscipline.WALKING,
+    "3G": AthleticsDiscipline.WALKING,
     "5G": AthleticsDiscipline.WALKING,
 }
 
 
 def _map_discipline(abbreviation: str, mapping: dict[str, AthleticsDiscipline]) -> AthleticsDiscipline:
-    return mapping.get(abbreviation.strip(), AthleticsDiscipline.OTHER)
+    code = abbreviation.strip()
+    return mapping.get(code) or mapping.get(code.replace("X", "x"), AthleticsDiscipline.OTHER)
 
 
 class LeichtathletikDeEntryListParser:
