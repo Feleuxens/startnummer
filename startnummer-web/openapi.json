@@ -782,6 +782,26 @@
               }
             }
           },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportProblem"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -815,6 +835,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RosterPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportProblem"
                 }
               }
             }
@@ -3810,6 +3840,71 @@
         },
         "type": "object",
         "title": "HandballEvent"
+      },
+      "ImportFileProblem": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "detail"
+        ],
+        "title": "ImportFileProblem"
+      },
+      "ImportProblem": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "photos",
+                  "album",
+                  "roster"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ImportFileProblem"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ImportProblem"
       },
       "IntegrationRevision": {
         "properties": {

@@ -31,6 +31,7 @@ from startnummer.app.contracts import (
     DisciplinePreview,
     Edit,
     FaceView,
+    ImportProblem,
     IntegrationRevision,
     IntegrationStatus,
     PropagationApply,
@@ -45,7 +46,7 @@ from startnummer.app.contracts import (
 )
 from startnummer.app.integrations import Integrations
 from startnummer.app.operations import administration, database_healthy, effective_settings, storage_healthy
-from startnummer.app.services import InputPhoto, Services, run
+from startnummer.app.services import ImportRejected, InputPhoto, Services, import_size_limit, run
 from startnummer.app.settings import Settings
 from startnummer.app.uploads import ROSTER_FILE_LIMIT, ROSTER_PREVIEW_PATH, upload_router
 from startnummer.core.batch import Batch, Conflict, Job, Missing, Photo, Publication, WorkflowError, WriteResult
@@ -133,6 +134,8 @@ def create_app(
     @app.exception_handler(WorkflowError)
     async def workflow_error(request, exc):
         status = 404 if isinstance(exc, Missing) else 409 if isinstance(exc, Conflict) else 400
+        if isinstance(exc, ImportRejected):
+            return JSONResponse(exc.problem.model_dump(mode="json"), status_code=status)
         return JSONResponse({"detail": str(exc)}, status_code=status)
 
     @app.get("/api/health/live", include_in_schema=False)
@@ -211,10 +214,14 @@ def create_app(
     def roster_bytes(upload):
         data = upload.file.read(ROSTER_FILE_LIMIT + 1) if upload else None
         if data is not None and len(data) > ROSTER_FILE_LIMIT:
-            raise WorkflowError("Roster exceeds the size limit")
+            raise ImportRejected(
+                "roster",
+                f"The roster HTML exceeds the {import_size_limit(ROSTER_FILE_LIMIT)} limit. "
+                "Choose a smaller roster or No roster.",
+            )
         return data
 
-    @uploads.post(ROSTER_PREVIEW_PATH, response_model=RosterPreview)
+    @uploads.post(ROSTER_PREVIEW_PATH, response_model=RosterPreview, responses={400: {"model": ImportProblem}})
     def preview_roster(
         owner: Owner,
         service: Service,
@@ -224,7 +231,12 @@ def create_app(
     ):
         return service.preview_roster(roster_bytes(roster_file), roster_url, name_order)
 
-    @uploads.post("/api/batches", response_model=Batch, dependencies=[Depends(validate_import_fields)])
+    @uploads.post(
+        "/api/batches",
+        response_model=Batch,
+        dependencies=[Depends(validate_import_fields)],
+        responses={400: {"model": ImportProblem}, 409: {"model": ImportProblem}},
+    )
     def import_batch(
         owner: Owner,
         service: Service,
@@ -244,11 +256,19 @@ def create_app(
         inputs = []
         total = 0
         for photo in photos or []:
+            filename = photo.filename or "photo"
             data = photo.file.read(limits.max_file_bytes + 1)
+            if len(data) > limits.max_file_bytes:
+                inputs.append(InputPhoto(filename, b"", exceeded_limit=limits.max_file_bytes))
+                continue
             total += len(data)
-            if len(data) > limits.max_file_bytes or total > limits.max_batch_bytes:
-                raise WorkflowError("Upload exceeds the configured size limit")
-            inputs.append(InputPhoto(photo.filename or "photo", data))
+            if total > limits.max_batch_bytes:
+                raise ImportRejected(
+                    "photos",
+                    f"The selected photos exceed the {import_size_limit(limits.max_batch_bytes)} batch limit. "
+                    "Select fewer photos and try again.",
+                )
+            inputs.append(InputPhoto(filename, data))
         if photo_modified is not None:
             try:
                 dates = TypeAdapter(list[AwareDatetime | None]).validate_json(photo_modified)
@@ -262,7 +282,7 @@ def create_app(
         try:
             corrections = TypeAdapter(list[RosterNameEdit]).validate_json(roster_names) if roster_names else []
         except ValidationError as exc:
-            raise WorkflowError("Roster name corrections must contain valid entries and names") from exc
+            raise ImportRejected("roster", "Check the names in the roster preview and try again.") from exc
         if gallery_url and service.gallery is None:
             raise HTTPException(403, "Gallery access requires an administrator")
         return service.import_batch(

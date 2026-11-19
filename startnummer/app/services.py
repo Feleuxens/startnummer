@@ -10,10 +10,13 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 
 from startnummer.adapters.db.store import Store
-from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import LeichtathletikDeEntryListParser
+from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import (
+    LeichtathletikDeEntryListParser,
+    UnsupportedRosterPage,
+)
 from startnummer.adapters.face.sessions import propagation_problem
 from startnummer.adapters.photo_dates import capture_time, modified_time
 from startnummer.app.captions import caption_overrides
@@ -21,6 +24,8 @@ from startnummer.app.contracts import (
     DisciplineChange,
     DisciplinePreview,
     FaceTarget,
+    ImportFileProblem,
+    ImportProblem,
     PropagationCandidate,
     PropagationPreview,
     RosterPreview,
@@ -58,6 +63,23 @@ class InputPhoto:
     destination: object = None
     description: str | None = None
     date_modified: datetime | None = None
+    exceeded_limit: int | None = None
+
+
+class ImportRejected(WorkflowError):
+    def __init__(self, field, detail, files=()):
+        super().__init__(detail)
+        self.problem = ImportProblem(field=field, detail=detail, files=list(files))
+
+
+class ImportConflict(ImportRejected, Conflict):
+    pass
+
+
+def import_size_limit(limit):
+    if limit < 1024 * 1024:
+        return f"{limit:,} {'byte' if limit == 1 else 'bytes'}"
+    return f"{limit / (1024 * 1024):g} MiB"
 
 
 def run(awaitable):
@@ -85,15 +107,23 @@ class Services:
         return self._download(url, roster=roster, gallery_base=gallery_base).data
 
     def _download(self, url: str, *, roster: bool = False, gallery_base: str | None = None) -> DownloadedSource:
-        parsed = urlparse(url)
-        if roster:
-            allowed = parsed.scheme in ("http", "https") and parsed.hostname in self.settings.roster_hosts
-            allowed = allowed and parsed.port in (None, 80, 443)
-        else:
-            configured = urlparse(gallery_base or self.settings.chevereto_url or "")
-            allowed = (parsed.scheme, parsed.netloc) == (configured.scheme, configured.netloc)
-        if not allowed or parsed.username or parsed.password:
-            raise WorkflowError("URL is not a supported/configured source")
+        try:
+            parsed = urlparse(url)
+            if roster:
+                allowed = parsed.scheme in ("http", "https") and parsed.hostname in self.settings.roster_hosts
+                allowed = allowed and parsed.port in (None, 80, 443)
+            else:
+                configured = urlparse(gallery_base or self.settings.chevereto_url or "")
+                allowed = (parsed.scheme, parsed.netloc) == (configured.scheme, configured.netloc)
+            allowed = allowed and parsed.username is None and parsed.password is None
+        except ValueError:
+            allowed = False
+        if not allowed:
+            if roster:
+                raise WorkflowError("Use a supported roster URL, upload its HTML, or choose No roster.")
+            raise WorkflowError(
+                "The photo URL does not belong to the configured gallery. Check the album in Chevereto."
+            )
         maximum = effective_settings(self.store, self.settings).max_file_bytes
         limit = min(maximum, 10 * 1024 * 1024) if roster else maximum
         try:
@@ -103,10 +133,15 @@ class Services:
                 for chunk in response.iter_bytes():
                     data.extend(chunk)
                     if len(data) > limit:
-                        raise WorkflowError("Source exceeds the configured size limit")
+                        source = "roster" if roster else "photo"
+                        raise WorkflowError(f"The {source} exceeds the {import_size_limit(limit)} size limit.")
                 return DownloadedSource(bytes(data), modified_time(response.headers.get("last-modified")))
         except httpx.HTTPError as exc:
-            raise WorkflowError("Could not fetch the configured source; check its URL and access") from exc
+            if roster:
+                raise WorkflowError("Could not open the roster page. Check the URL or upload the roster HTML.") from exc
+            raise WorkflowError(
+                "Could not download the original. Check that it opens in Chevereto, then retry."
+            ) from exc
 
     def _gallery(self):
         if self.gallery is None:
@@ -116,22 +151,36 @@ class Services:
     def _read_roster(self, roster_html, roster_url, name_order):
         roster_url = (roster_url or "").strip() or None
         if roster_html is not None and roster_url:
-            raise WorkflowError("Choose only one roster source: HTML upload or supported URL")
+            raise ImportRejected("roster", "Choose only one roster source, Upload HTML or Supported URL.")
         if roster_url:
-            roster_html = self.fetch(roster_url, roster=True)
+            try:
+                roster_html = self.fetch(roster_url, roster=True)
+            except WorkflowError as exc:
+                raise ImportRejected("roster", str(exc)) from exc
         roster = EntryList(name_order=name_order)
         if roster_html is not None:
             try:
                 roster = LeichtathletikDeEntryListParser().parse_content(
                     roster_html.decode("utf-8-sig"), name_order=name_order
                 )
-            except (ValueError, UnicodeError) as exc:
-                raise WorkflowError("Roster must be supported Competitoroverview or Resultoverview HTML") from exc
+            except (UnsupportedRosterPage, UnicodeError) as exc:
+                raise ImportRejected(
+                    "roster", "Use a Competitoroverview or Resultoverview page, upload its HTML, or choose No roster."
+                ) from exc
+            except ValueError as exc:
+                raise ImportRejected(
+                    "roster",
+                    "Could not read the roster entries. Try the competition's other roster page or choose No roster.",
+                ) from exc
             if not roster.athletes:
-                raise WorkflowError("The roster contains no supported entries")
+                raise ImportRejected(
+                    "roster", "This roster has no athlete entries. Choose a populated roster or No roster."
+                )
         bibs = [athlete.bib for athlete in roster.athletes if athlete.bib]
         if len(set(bibs)) != len(bibs):
-            raise WorkflowError("Roster contains duplicate bib numbers; correct the roster before analysis")
+            raise ImportRejected(
+                "roster", "The roster contains duplicate bib numbers. Correct the roster or choose No roster."
+            )
         return roster
 
     @staticmethod
@@ -141,7 +190,7 @@ class Services:
     def preview_roster(self, roster_html, roster_url, name_order=NameOrder.AUTO):
         roster = self._read_roster(roster_html, roster_url, name_order)
         if not roster.athletes:
-            raise WorkflowError("Choose a roster to preview")
+            raise ImportRejected("roster", "Choose a roster to preview.")
         return RosterPreview(roster=roster, digest=self._roster_digest(roster))
 
     def import_batch(
@@ -168,33 +217,55 @@ class Services:
         roster_url = (roster_url or "").strip() or None
         roster = self._read_roster(roster_html, roster_url, name_order)
         if roster_names and not roster_digest:
-            raise WorkflowError("Preview roster names before correcting them")
+            raise ImportRejected("roster", "Preview roster names before correcting them.")
         if roster_digest is not None and roster_digest != self._roster_digest(roster):
-            raise Conflict("Roster changed since the preview; preview roster names again")
+            raise ImportConflict(
+                "roster", "Roster changed since the preview. Choose Preview roster names and try again."
+            )
         if len({correction.index for correction in roster_names}) != len(roster_names):
-            raise WorkflowError("Correct each roster name only once")
+            raise ImportRejected("roster", "Correct each roster name only once.")
         for correction in roster_names:
             if correction.index >= len(roster.athletes):
-                raise WorkflowError("Choose a valid roster entry")
+                raise ImportRejected("roster", "Choose a valid roster entry.")
             roster.athletes[correction.index].name = correction.name
             roster.name_parsing[correction.index].needs_review = False
         if gallery_url:
             if photos:
-                raise WorkflowError("Choose either gallery import or uploaded photos")
-            gallery = self._gallery()
-            album_name, remote = gallery.album(gallery_url)
+                raise ImportRejected("photos", "Choose either a Chevereto album or uploaded photos.")
+            try:
+                gallery = self._gallery()
+                album_name, remote = gallery.album(gallery_url)
+            except Conflict as exc:
+                raise ImportConflict("album", str(exc)) from exc
+            except WorkflowError as exc:
+                detail = str(exc).rstrip(".")
+                raise ImportRejected("album", f"{detail}. Check the album URL or choose Upload images.") from exc
+            except ValueError as exc:
+                raise ImportRejected("album", "Enter a Chevereto album URL or choose Upload images.") from exc
+            if not remote:
+                raise ImportRejected(
+                    "album", "This Chevereto album contains no photos. Choose another album or Upload images."
+                )
             photos = []
             total = 0
             for remote_photo in remote:
-                downloaded = (
-                    self._download(remote_photo.source_url, gallery_base=gallery.base_url)
-                    if self.fetch == self._fetch
-                    else DownloadedSource(self.fetch(remote_photo.source_url), None)
-                )
+                try:
+                    downloaded = (
+                        self._download(remote_photo.source_url, gallery_base=gallery.base_url)
+                        if self.fetch == self._fetch
+                        else DownloadedSource(self.fetch(remote_photo.source_url), None)
+                    )
+                except WorkflowError as exc:
+                    failure = ImportFileProblem(name=PurePath(remote_photo.name).name, detail=str(exc))
+                    raise ImportRejected("album", "A photo in the album could not be imported.", [failure]) from exc
                 data = downloaded.data
                 total += len(data)
                 if total > limits.max_batch_bytes:
-                    raise WorkflowError("Batch exceeds the configured size limit")
+                    raise ImportRejected(
+                        "album",
+                        f"This album exceeds the {import_size_limit(limits.max_batch_bytes)} batch limit. "
+                        "Choose a smaller album.",
+                    )
                 photos.append(
                     InputPhoto(
                         remote_photo.name,
@@ -206,33 +277,50 @@ class Services:
                 )
             name = (name or "").strip() or album_name
         if not photos:
-            raise WorkflowError("The batch contains no photos")
+            raise ImportRejected("photos", "Choose at least one image to import.")
         if sum(len(p.data) for p in photos) > limits.max_batch_bytes:
-            raise WorkflowError("Batch exceeds the configured size limit")
+            raise ImportRejected(
+                "photos",
+                f"The selected photos exceed the {import_size_limit(limits.max_batch_bytes)} batch limit. "
+                "Select fewer photos and try again.",
+            )
         # Reject invalid images before storing the batch or its bytes.
         checked = []
-        for photo in photos:
-            if len(photo.data) > limits.max_file_bytes:
-                raise WorkflowError(f"Image exceeds the size limit: {PurePath(photo.name).name}")
+        failures = []
+        for index, photo in enumerate(photos):
             try:
+                if photo.exceeded_limit is not None or len(photo.data) > limits.max_file_bytes:
+                    limit = photo.exceeded_limit or limits.max_file_bytes
+                    raise WorkflowError(f"This file exceeds the {import_size_limit(limit)} per-photo limit.")
                 with Image.open(BytesIO(photo.data)) as image:
                     if image.format not in {"JPEG", "MPO", "PNG", "WEBP"}:
-                        raise WorkflowError(
-                            f"Supported photo formats are JPEG, PNG, and WebP; unsupported file: "
-                            f"{PurePath(photo.name).name} ({image.format})"
-                        )
+                        raise WorkflowError(f"{image.format or 'Unknown'} format. Upload a JPEG, PNG, or WebP image.")
                     width, height = image.size
                     if width * height > 50_000_000:
-                        raise WorkflowError("Image dimensions exceed the supported limit")
+                        raise WorkflowError("This image exceeds 50 megapixels. Resize it and try again.")
                     # MPO stores additional JPEG frames; serve the unchanged primary JPEG to the browser.
                     mime = "image/jpeg" if image.format == "MPO" else Image.MIME[image.format]
                     if image.getexif().get(274, 1) in {5, 6, 7, 8}:
                         width, height = height, width
                     date_taken = capture_time(image)
                     image.verify()
-            except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-                raise WorkflowError("A selected file is not a valid supported image") from exc
+            except (WorkflowError, OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
+                detail = (
+                    str(exc)
+                    if isinstance(exc, WorkflowError)
+                    else "This image could not be read. Try the original file."
+                )
+                failures.append(
+                    ImportFileProblem(
+                        name=PurePath(photo.name).name, detail=detail, index=None if gallery_url else index
+                    )
+                )
+                continue
             checked.append((photo, width, height, mime, date_taken))
+        if failures:
+            if gallery_url:
+                raise ImportRejected("album", "Some photos in this album could not be imported.", failures)
+            raise ImportRejected("photos", "Replace or remove the files below, then retry.", failures)
         album = Album(
             owner_id=owner_id,
             name=(name or "").strip() or "New batch",

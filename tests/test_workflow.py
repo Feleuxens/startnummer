@@ -22,7 +22,7 @@ from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.app.api import create_app
 from startnummer.app.contracts import Edit, Selection
-from startnummer.app.services import InputPhoto, Services
+from startnummer.app.services import ImportRejected, InputPhoto, Services
 from startnummer.app.settings import Settings
 from startnummer.app.worker import Worker
 from startnummer.core.batch import (
@@ -32,7 +32,6 @@ from startnummer.core.batch import (
     Destination,
     Missing,
     Publication,
-    WorkflowError,
     WriteResult,
     WriteState,
 )
@@ -204,14 +203,17 @@ def test_duplicate_bytes_retain_independent_remote_ids_and_cleanup(environment):
 
 def test_rejects_empty_roster_and_invalid_images_without_blobs(environment):
     service, _ = environment
-    with pytest.raises(Exception, match="no supported entries"):
+    with pytest.raises(ImportRejected, match="no athlete entries") as empty:
         service.import_batch(
             service.settings.owner_id, "", "", [InputPhoto("x.jpg", image_bytes())], None, b"<html></html>", None
         )
-    with pytest.raises(Exception, match="valid supported image"):
+    assert empty.value.problem.field == "roster"
+    with pytest.raises(ImportRejected) as damaged:
         service.import_batch(
             service.settings.owner_id, "", "", [InputPhoto("x.jpg", b"not an image")], None, HTML, None
         )
+    assert damaged.value.problem.field == "photos"
+    assert damaged.value.problem.files[0].name == "x.jpg"
     assert not service.settings.blob_root.exists()
 
 
@@ -251,14 +253,31 @@ def test_import_accepts_multi_frame_jpeg_without_reencoding(environment, gallery
         assert bool(photo.destination) == gallery
 
 
-def test_unsupported_image_error_identifies_the_file_and_format(environment):
+def test_import_reports_all_invalid_files_by_position_and_names_unsupported_formats(environment):
     service, _ = environment
     output = BytesIO()
     Image.new("RGB", (20, 30)).save(output, format="TIFF")
-    with pytest.raises(WorkflowError, match=r"unsupported file: unexpected.jpg \(TIFF\)"):
-        service.import_batch(
-            service.settings.owner_id, "", "", [InputPhoto("unexpected.jpg", output.getvalue())], None, HTML, None
-        )
+    photos = [
+        InputPhoto("duplicate.jpg", b"corrupt"),
+        InputPhoto("duplicate.jpg", image_bytes()),
+        InputPhoto("unexpected.jpg", output.getvalue()),
+    ]
+    with pytest.raises(ImportRejected) as rejected:
+        service.import_batch(service.settings.owner_id, "", "", photos, None, HTML, None)
+    problem = rejected.value.problem
+    assert problem.field == "photos"
+    assert [(file.index, file.name) for file in problem.files] == [(0, "duplicate.jpg"), (2, "unexpected.jpg")]
+    assert "TIFF format" in problem.files[1].detail
+    assert not service.store.list_batches(service.settings.owner_id)
+    assert not service.settings.blob_root.exists()
+
+
+def test_import_reports_empty_gallery_album_at_the_album_input(environment, monkeypatch):
+    service, _ = environment
+    monkeypatch.setattr(service.gallery, "album", lambda _: ("Empty album", []))
+    with pytest.raises(ImportRejected, match="album contains no photos") as rejected:
+        service.import_batch(service.settings.owner_id, "", "", [], "http://gallery.test/album/a", None, None)
+    assert rejected.value.problem.field == "album"
     assert not service.settings.blob_root.exists()
 
 

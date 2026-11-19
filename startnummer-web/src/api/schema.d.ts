@@ -1350,6 +1350,24 @@ export interface components {
             sport: "handball";
             discipline?: components["schemas"]["Confident_HandballDiscipline_"] | null;
         };
+        /** ImportFileProblem */
+        ImportFileProblem: {
+            /** Name */
+            name: string;
+            /** Detail */
+            detail: string;
+            /** Index */
+            index?: number | null;
+        };
+        /** ImportProblem */
+        ImportProblem: {
+            /** Field */
+            field?: ("photos" | "album" | "roster") | null;
+            /** Detail */
+            detail: string;
+            /** Files */
+            files?: components["schemas"]["ImportFileProblem"][];
+        };
         /** IntegrationRevision */
         IntegrationRevision: {
             /** Revision */
@@ -2691,6 +2709,24 @@ export interface operations {
                     "application/json": components["schemas"]["Batch"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportProblem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportProblem"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -2722,6 +2758,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RosterPreview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportProblem"];
                 };
             };
             /** @description Validation Error */

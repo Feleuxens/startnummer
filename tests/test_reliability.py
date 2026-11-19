@@ -197,7 +197,7 @@ def test_import_stops_fetching_when_gallery_batch_limit_is_reached(environment):
 
     service, fetched = environment
     service.settings = replace(service.settings, max_batch_bytes=1)
-    with pytest.raises(Exception, match="Batch exceeds"):
+    with pytest.raises(Exception, match="1 byte batch limit"):
         import_batch(service, gallery=True)
     assert len(fetched) == 1
     assert service.store.list_batches(service.settings.owner_id) == []

@@ -258,18 +258,22 @@ export default function Workspace() {
           {screen === 'new' && (
             <ImportBatch
               busy={busy}
+              action={action}
               canUseGallery={Boolean(session.is_admin)}
               gallery={session.gallery_url ?? ''}
-              onImport={(form) =>
-                action(async () => {
-                  const batch = await workspaceApi.importBatch(form);
+              onImported={async (id) => {
+                try {
                   await listAlbums();
-                  await openBatch(batch.album.id);
-                  setNotice(
-                    'Inputs saved. Check the roster and photo count before starting analysis.',
+                  await openBatch(id);
+                } catch {
+                  throw new Error(
+                    'Batch saved. Open it from Saved albums or choose Import and preview again.',
                   );
-                })
-              }
+                }
+                setNotice(
+                  'Inputs saved. Check the roster and photo count before starting analysis.',
+                );
+              }}
             />
           )}
         </div>

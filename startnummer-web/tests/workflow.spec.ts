@@ -12,6 +12,130 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();
 }
 
+test('repair failed uploads without losing other files or the roster draft', async ({ page }) => {
+  await login(page);
+  const seed = await page.request.post('/api/batches', {
+    multipart: { gallery_url: 'http://gallery.test/album/a' },
+    headers: { 'X-Requested-With': 'Startnummer' },
+  });
+  expect(seed.ok()).toBeTruthy();
+  const photoId = (await seed.json()).photos[0].id;
+  const original = await (await page.request.get(`/api/photos/${photoId}`)).body();
+  const albumsBefore = await (await page.request.get('/api/batches')).json();
+
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Upload images', { exact: true }).check();
+  const damaged = `damaged-${'original-filename-'.repeat(6)}.jpg`;
+  await page.getByLabel('Image files').setInputFiles([
+    { name: 'first.jpg', mimeType: 'image/jpeg', buffer: original },
+    { name: damaged, mimeType: 'image/jpeg', buffer: Buffer.from('damaged') },
+    { name: 'replace-me.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('damaged') },
+    { name: 'last.jpg', mimeType: 'image/jpeg', buffer: original },
+  ]);
+  await page.getByLabel('Roster HTML').setInputFiles({
+    name: 'roster.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from(html),
+  });
+  await page.getByRole('button', { name: 'Preview roster names', exact: true }).click();
+  const rosterName = page.getByRole('textbox', {
+    name: 'Parsed name for roster person 1',
+    exact: true,
+  });
+  await rosterName.fill('Alex Corrected');
+  await page.getByLabel('Album name', { exact: true }).fill('Retry upload');
+  const submit = page.getByRole('button', { name: 'Import and preview', exact: true });
+  await submit.click();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Replace or remove the files below, then retry.',
+  );
+  await expect(page.getByRole('alert')).toBeFocused();
+  await expect(page.locator('input[aria-label="Replacement image"]')).toBeHidden();
+  const failures = page.getByRole('list', { name: 'Files that could not be imported' });
+  await expect(failures.getByRole('listitem')).toHaveCount(2);
+  await expect(failures.getByText(damaged, { exact: true })).toBeVisible();
+  await expect(failures.getByText('replace-me.jpg', { exact: true })).toBeVisible();
+  expect(await (await page.request.get('/api/batches')).json()).toEqual(albumsBefore);
+  await page.screenshot({
+    path: test.info().outputPath('import-errors-desktop.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('import-errors-mobile.png'),
+    fullPage: true,
+  });
+
+  await failures.getByRole('button', { name: `Remove ${damaged}`, exact: true }).click();
+  await expect(failures.getByRole('listitem')).toHaveCount(1);
+  await expect(page.getByText('3 photos selected', { exact: true })).toBeVisible();
+  const chooser = page.waitForEvent('filechooser');
+  await failures.getByRole('button', { name: 'Replace replace-me.jpg', exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({ name: 'replacement.jpg', mimeType: 'image/jpeg', buffer: original });
+  await expect(failures).toHaveCount(0);
+  await expect(rosterName).toHaveValue('Alex Corrected');
+  await expect(page.getByLabel('Album name', { exact: true })).toHaveValue('Retry upload');
+  await submit.click();
+  await expect(page.getByRole('heading', { name: 'Ready to analyze', exact: true })).toBeVisible();
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const { batch }: components['schemas']['BatchView'] = await (
+    await page.request.get(`/api/batches/${batchId}`)
+  ).json();
+  expect(batch.photos.map((file) => file.display_name)).toEqual([
+    'first.jpg',
+    'replacement.jpg',
+    'last.jpg',
+  ]);
+  expect(batch.roster.athletes?.[0]?.name).toBe('Alex Corrected');
+});
+
+test('point to the roster field and handle a proxy upload limit', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL').fill('http://gallery.test/album/a');
+  const roster = page.getByLabel('Roster HTML');
+  await roster.setInputFiles({
+    name: 'wrong-page.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from('<h1>Competition homepage</h1>'),
+  });
+  const submit = page.getByRole('button', { name: 'Import and preview', exact: true });
+  await submit.click();
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('Use a Competitoroverview or Resultoverview page');
+  await expect(alert).toBeFocused();
+  await expect(roster).toHaveAttribute('aria-describedby', 'import-roster-error');
+  await expect(page.getByLabel('Album URL')).toHaveValue('http://gallery.test/album/a');
+
+  await page.getByLabel('No roster', { exact: true }).check();
+  await page.getByLabel('Upload images', { exact: true }).check();
+  const images = page.getByLabel('Image files');
+  await images.setInputFiles({
+    name: 'original.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from('rejected by the proxy before validation'),
+  });
+  await page.route(
+    '**/api/batches',
+    (route) =>
+      route.fulfill({
+        status: 413,
+        contentType: 'text/html',
+        body: '<h1>Request Entity Too Large</h1>',
+      }),
+    { times: 1 },
+  );
+  await submit.click();
+  await expect(alert).toHaveText(
+    'The upload is too large. Select fewer photos or split them into smaller batches.',
+  );
+  await expect(images).toHaveAttribute('aria-describedby', 'import-photo-error');
+  await expect(page.getByText('1 photo selected', { exact: true })).toBeVisible();
+});
+
 test('preview name order, keep surname initials, override formats, and correct an imported name', async ({
   page,
 }) => {

@@ -20,6 +20,7 @@ from startnummer.app.backup import backup, restore
 from startnummer.app.contracts import CheveretoConnection
 from startnummer.app.integrations import Integrations
 from startnummer.app.manage import migrate
+from startnummer.app.services import ImportRejected
 from startnummer.core.batch import Conflict, DescriptionWrite, Destination, WorkflowError
 from tests.test_workflow import HTML, FakeGallery, analyzed, image_bytes
 from tests.test_workflow import environment as environment
@@ -350,8 +351,10 @@ def test_configured_gallery_snapshot_controls_photo_fetches_without_environment_
         )
 
     if outside_gallery:
-        with pytest.raises(WorkflowError, match="configured source"):
+        with pytest.raises(ImportRejected) as rejected:
             import_photos()
+        assert rejected.value.problem.field == "album"
+        assert "does not belong to the configured gallery" in rejected.value.problem.files[0].detail
         stream.assert_not_called()
     else:
         batch = import_photos()

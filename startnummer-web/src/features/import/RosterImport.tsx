@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { message } from '../../api/client';
 import type { Schema } from '../../api/types';
-import { previewRoster } from '../../api/workspace';
+import { importProblem, previewRoster } from '../../api/workspace';
 import { nameOrders } from './model';
 import RosterNamePreview from './RosterNamePreview';
 
 export default function RosterImport({
   busy,
   onBusyChange,
+  importError,
+  onEdit,
 }: {
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
+  importError?: string;
+  onEdit: () => void;
 }) {
   const [source, setSource] = useState('file');
   const [order, setOrder] = useState<Schema['NameOrder']>('auto');
@@ -21,6 +24,7 @@ export default function RosterImport({
   const [loading, setLoading] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   const generation = useRef(0);
+  const visibleError = importError || error;
   useEffect(
     () => () => {
       generation.current += 1;
@@ -35,6 +39,7 @@ export default function RosterImport({
     setError('');
     setLoading(false);
     onBusyChange(false);
+    onEdit();
   }
 
   async function loadPreview() {
@@ -45,6 +50,7 @@ export default function RosterImport({
       )
     )
       return;
+    onEdit();
     if (source === 'file' && !file.current?.files?.length) {
       setError('Choose a roster HTML file first.');
       return;
@@ -68,7 +74,7 @@ export default function RosterImport({
         setCorrections({});
       }
     } catch (failure) {
-      if (sequence === generation.current) setError(message(failure));
+      if (sequence === generation.current) setError(importProblem(failure).detail);
     } finally {
       if (sequence === generation.current) {
         setLoading(false);
@@ -109,6 +115,8 @@ export default function RosterImport({
               accept=".html,.htm,text/html"
               required
               disabled={busy}
+              aria-invalid={visibleError ? true : undefined}
+              aria-describedby={visibleError ? 'import-roster-error' : undefined}
               onChange={invalidate}
             />
           </label>
@@ -122,6 +130,8 @@ export default function RosterImport({
               placeholder="https://ergebnisse.leichtathletik.de/…"
               required
               disabled={busy}
+              aria-invalid={visibleError ? true : undefined}
+              aria-describedby={visibleError ? 'import-roster-error' : undefined}
               value={url}
               onChange={(event) => {
                 setUrl(event.target.value);
@@ -135,6 +145,17 @@ export default function RosterImport({
             ? 'Name detected people during review, then use face propagation to assign them to matching faces.'
             : 'Competitoroverview or Resultoverview from ergebnisse.leichtathletik.de.'}
         </small>
+        {visibleError && (
+          <p
+            id="import-roster-error"
+            className="error-text import-error"
+            role="alert"
+            tabIndex={-1}
+            data-import-error={importError ? true : undefined}
+          >
+            {visibleError}
+          </p>
+        )}
         {source !== 'none' && (
           <>
             <label>
@@ -173,11 +194,6 @@ export default function RosterImport({
               {loading ? 'Reading roster…' : 'Preview roster names'}
             </button>
           </>
-        )}
-        {error && (
-          <p className="error-text" role="alert">
-            {error}
-          </p>
         )}
       </section>
       {preview && source !== 'none' && (

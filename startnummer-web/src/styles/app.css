@@ -322,6 +322,41 @@ nav button span {
 .import-form section > label {
   margin-top: 18px;
 }
+.import-form input[hidden] {
+  display: none;
+}
+.import-error {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.import-file-errors {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.import-file-errors li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+.import-file-errors li > div:first-child {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.import-file-errors p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.import-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .source-choices {
   display: flex;
   gap: 20px;
@@ -337,6 +372,7 @@ nav button span {
 }
 .import-details,
 .roster-preview-section,
+.import-submit-error,
 .import-footer {
   grid-column: 1 / -1;
 }

@@ -314,6 +314,18 @@ class RosterPreview(BaseModel):
     digest: str
 
 
+class ImportFileProblem(BaseModel):
+    name: str
+    detail: str
+    index: int | None = None
+
+
+class ImportProblem(BaseModel):
+    field: Literal["photos", "album", "roster"] | None = None
+    detail: str
+    files: list[ImportFileProblem] = Field(default_factory=list)
+
+
 class BatchView(BaseModel):
     batch: Batch
     jobs: list[Job]

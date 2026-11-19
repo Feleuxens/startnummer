@@ -67,6 +67,10 @@ def _map_discipline(abbreviation: str, mapping: dict[str, AthleticsDiscipline]) 
     return mapping.get(code) or mapping.get(code.replace("X", "x"), AthleticsDiscipline.OTHER)
 
 
+class UnsupportedRosterPage(ValueError):
+    pass
+
+
 class LeichtathletikDeEntryListParser:
     def __init__(self, abbreviations: dict[str, AthleticsDiscipline] | None = None) -> None:
         self._abbreviations = abbreviations or DISCIPLINE_ABBREVIATIONS
@@ -102,6 +106,8 @@ class LeichtathletikDeEntryListParser:
                 table.athletes, table.name_parsing = parse_results(html, name_order=name_order)
                 return table
             entries = html.find_all("div", {"class": "entryline"})
+            if not entries and not html.select_one("#seltecdlv, .blocktable") and html.get_text(strip=True):
+                raise UnsupportedRosterPage("Unsupported roster page")
             for entry in entries:
                 divs = entry.find_all("div")
                 if len(divs) < 9:

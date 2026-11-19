@@ -58,6 +58,23 @@ def test_declared_upload_size_is_checked_against_live_installation_settings(acco
     asyncio.run(scenario())
 
 
+def test_per_photo_limit_names_the_file_alongside_other_photo_errors(accounts):
+    app, *_ = accounts
+    admin = setup(app)
+    settings = {"revision": 0, "max_file_bytes": MIB, "max_batch_bytes": 2 * MIB, "session_ttl": 600}
+    assert admin.put("/api/admin/settings", json=settings).status_code == 200
+
+    response = admin.post(
+        BATCH,
+        files=[("photos", ("oversized.jpg", b"x" * (MIB + 1))), ("photos", ("damaged.jpg", b"corrupt"))],
+    )
+    assert response.status_code == 400 and response.json()["field"] == "photos"
+    failures = response.json()["files"]
+    assert [(file["index"], file["name"]) for file in failures] == [(0, "oversized.jpg"), (1, "damaged.jpg")]
+    assert "1 MiB per-photo limit" in failures[0]["detail"]
+    assert admin.get(BATCH).json() == []
+
+
 @pytest.mark.parametrize("declared_length", [None, "1024"])
 def test_stream_limit_stops_consumption_and_closes_partial_uploads(accounts, monkeypatch, declared_length):
     app, *_ = accounts

@@ -120,7 +120,7 @@ def test_no_roster_propagation_still_protects_conflicting_bibs(environment):
 @pytest.mark.parametrize("html", [b"", b"<html></html>"])
 def test_a_supplied_empty_roster_is_not_silently_treated_as_no_roster(environment, html):
     service, _ = environment
-    with pytest.raises(WorkflowError, match="no supported entries"):
+    with pytest.raises(WorkflowError, match="no athlete entries"):
         service.import_batch(
             service.settings.owner_id, "", "", [InputPhoto("photo.jpg", image_bytes())], None, html, None
         )
@@ -160,7 +160,23 @@ def test_http_upload_without_roster_keeps_authentication_and_rejects_empty_roste
         invalid = client.post(
             "/api/batches", files=[*files, ("roster_file", ("empty.html", b"", "text/html"))], headers=headers
         )
-        assert invalid.status_code == 400 and "no supported entries" in invalid.text
+        assert invalid.status_code == 400 and "no athlete entries" in invalid.json()["detail"]
+        assert invalid.json()["field"] == "roster"
+
+
+def test_roster_preview_distinguishes_an_unsupported_page_from_a_supported_empty_roster(environment):
+    service, _ = environment
+    app = create_app(service.settings, store=service.store, blobs=service.blobs, sessions=service.sessions)
+    headers = {"X-Requested-With": "Startnummer"}
+    with TestClient(app, headers=headers) as client:
+        client.post("/api/session", json={"username": "photographer", "password": "test-password"})
+        for html, message in (
+            (b"<html><h1>Other competition page</h1></html>", "Use a Competitoroverview or Resultoverview page"),
+            (b'<div id="seltecdlv"><div class="blocktable">No entries</div></div>', "no athlete entries"),
+        ):
+            response = client.post("/api/roster/preview", files={"roster_file": ("roster.html", html)})
+            assert response.status_code == 400 and response.json()["field"] == "roster"
+            assert message in response.json()["detail"]
 
 
 def test_review_read_cannot_pair_a_completed_job_with_pre_analysis_photos(environment, monkeypatch):
