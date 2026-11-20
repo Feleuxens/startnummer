@@ -185,6 +185,24 @@ class CaptionNames(Input):
         return self
 
 
+class AlbumSettings(CaptionNames):
+    revision: int = Field(ge=0)
+    name: str
+    meet_name: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def require_name(cls, value):
+        if not (name := value.strip()):
+            raise ValueError("Enter an album name")
+        return name
+
+    @field_validator("meet_name")
+    @classmethod
+    def trim_meet_name(cls, value):
+        return (value or "").strip() or None
+
+
 class WorkerHealth(BaseModel):
     reachable: bool
     state: Literal["starting", "idle", "busy", "unavailable"]
@@ -224,6 +242,7 @@ class Selected(Input):
 class DisciplineAssignment(Selected):
     discipline: AthleticsDiscipline
     caption_names_revision: int | None = Field(default=None, ge=0)
+    album_settings_revision: int | None = Field(default=None, ge=0)
 
 
 class DisciplineChange(BaseModel):
@@ -240,6 +259,7 @@ class DisciplineChange(BaseModel):
 
 class DisciplinePreview(BaseModel):
     caption_names_revision: int | None = None
+    album_settings_revision: int | None = None
     discipline: AthleticsDiscipline
     photos: list[DisciplineChange]
 
@@ -365,6 +385,7 @@ class PropagationRequest(Input):
     source: FaceTarget
     face_session_id: str = Field(min_length=1)
     caption_names_revision: int | None = Field(default=None, ge=0)
+    album_settings_revision: int | None = Field(default=None, ge=0)
 
 
 class PropagationApply(PropagationRequest):

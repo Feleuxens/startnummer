@@ -401,6 +401,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/{batch_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit Album Settings */
+        put: operations["edit_album_settings_api_batches__batch_id__settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion": {
         parameters: {
             query?: never;
@@ -873,10 +890,28 @@ export interface components {
             /** Roster Source */
             roster_source: string | null;
             /**
+             * Settings Revision
+             * @default 0
+             */
+            settings_revision: number;
+            /** Caption Name Overrides */
+            caption_name_overrides: components["schemas"]["CaptionNameOverride"][];
+            /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+        };
+        /** AlbumSettings */
+        AlbumSettings: {
+            /** Revision */
+            revision: number;
+            /** Overrides */
+            overrides?: components["schemas"]["CaptionNameOverride"][];
+            /** Name */
+            name: string;
+            /** Meet Name */
+            meet_name?: string | null;
         };
         /** AnalysisDocument */
         AnalysisDocument: {
@@ -1195,6 +1230,8 @@ export interface components {
             discipline: components["schemas"]["AthleticsDiscipline"];
             /** Caption Names Revision */
             caption_names_revision?: number | null;
+            /** Album Settings Revision */
+            album_settings_revision?: number | null;
         };
         /** DisciplineChange */
         DisciplineChange: {
@@ -1231,6 +1268,8 @@ export interface components {
         DisciplinePreview: {
             /** Caption Names Revision */
             caption_names_revision?: number | null;
+            /** Album Settings Revision */
+            album_settings_revision?: number | null;
             discipline: components["schemas"]["AthleticsDiscipline"];
             /** Photos */
             photos: components["schemas"]["DisciplineChange"][];
@@ -1670,6 +1709,8 @@ export interface components {
             face_session_id: string;
             /** Caption Names Revision */
             caption_names_revision?: number | null;
+            /** Album Settings Revision */
+            album_settings_revision?: number | null;
             /** Targets */
             targets: components["schemas"]["FaceTarget"][];
             /**
@@ -1725,6 +1766,8 @@ export interface components {
             face_session_id: string;
             /** Caption Names Revision */
             caption_names_revision: number | null;
+            /** Album Settings Revision */
+            album_settings_revision: number | null;
             /** Athlete Name */
             athlete_name: string;
             /** Candidates */
@@ -1741,6 +1784,8 @@ export interface components {
             face_session_id: string;
             /** Caption Names Revision */
             caption_names_revision?: number | null;
+            /** Album Settings Revision */
+            album_settings_revision?: number | null;
         };
         /** PropagationUndo */
         PropagationUndo: {
@@ -2867,6 +2912,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Batch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_album_settings_api_batches__batch_id__settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlbumSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Album"];
                 };
             };
             /** @description Validation Error */

@@ -9,6 +9,7 @@ import * as reviewApi from './api';
 import FacePropagation from '../../components/FacePropagation';
 import BulkDiscipline from '../../components/BulkDiscipline';
 import PhotoEditor from './PhotoEditor';
+import AlbumSettingsDialog from './AlbumSettingsDialog';
 import ApprovalDialog from './ApprovalDialog';
 import ApplyDialog from './ApplyDialog';
 import ReviewHeader from './ReviewHeader';
@@ -35,6 +36,7 @@ type Props = {
   setError: (error: string) => void;
   setNotice: (notice: string) => void;
   onStatus: (status: ReviewStatus) => void;
+  onAlbumSaved: () => Promise<void>;
   onDelete: () => Promise<void>;
 };
 
@@ -51,6 +53,7 @@ export default function BatchReview({
   setError,
   setNotice,
   onStatus,
+  onAlbumSaved,
   onDelete,
 }: Props) {
   const { faces, setFaces, propagation, setPropagation } = useFaceSession(setNotice);
@@ -59,6 +62,10 @@ export default function BatchReview({
     sortPhotos(initial.view.batch.photos, 'name')[0]?.id ?? null,
   );
   const [subject, setSubject] = useState<number | null>(null);
+  const [albumSettings, setAlbumSettings] = useState<{
+    album: Schema['Album'];
+    sourceName?: string;
+  } | null>(null);
   const [disciplinePhotos, setDisciplinePhotos] = useState<Photo[] | null>(null);
   const [preview, setPreview] = useState<Preview[] | null>(null);
   const [approvalPreview, setApprovalPreview] = useState<{
@@ -85,6 +92,14 @@ export default function BatchReview({
   async function approvePhoto(photo: Photo) {
     await reviewApi.approvePhoto(batchId, photo);
     await refresh();
+  }
+  function editAlbum(sourceName?: string) {
+    if (changes.dirty.current) {
+      setError('Save the current photo’s changes before editing album settings.');
+      return;
+    }
+    setError('');
+    setAlbumSettings({ album: view.batch.album, sourceName });
   }
   function selectPhoto(photo: Photo) {
     if (busy) return;
@@ -187,6 +202,7 @@ export default function BatchReview({
             onRefresh={refresh}
             onFacesCleared={() => setFaces(emptyFaces)}
             onPreview={() => void action(showPreview)}
+            onEditAlbum={() => editAlbum()}
           />
           <ReviewControls
             photos={photos}
@@ -310,6 +326,7 @@ export default function BatchReview({
                     }, 'Caption suggestion refreshed. Manually edited captions were kept.')
                   }
                   onFindMatches={(index) => action(() => findMatches(selected, index))}
+                  onOverrideCaptionName={editAlbum}
                   onAddPerson={(person) =>
                     action(async () => {
                       changes.requireSaved('Save current edits before adding a person.');
@@ -373,6 +390,18 @@ export default function BatchReview({
       </div>
       {active && (
         <>
+          {albumSettings && (
+            <AlbumSettingsDialog
+              {...albumSettings}
+              onClose={() => setAlbumSettings(null)}
+              onSaved={() => {
+                setAlbumSettings(null);
+                void action(async () => {
+                  await Promise.all([refresh(), onAlbumSaved()]);
+                }, 'Album settings saved.');
+              }}
+            />
+          )}
           {disciplinePhotos && view && (
             <BulkDiscipline
               photos={disciplinePhotos}

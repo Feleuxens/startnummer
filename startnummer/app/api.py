@@ -20,6 +20,7 @@ from startnummer.app.captions import caption_preferences
 from startnummer.app.contracts import (
     AddPerson,
     Administration,
+    AlbumSettings,
     BatchSummary,
     BatchView,
     CaptionNames,
@@ -58,6 +59,7 @@ from startnummer.app.uploads import ROSTER_FILE_LIMIT, ROSTER_PREVIEW_PATH, uplo
 from startnummer.core.batch import Batch, Conflict, Job, Missing, Photo, Publication, WorkflowError, WriteResult
 from startnummer.core.enums import NameOrder
 from startnummer.core.errors import BlobNotFound
+from startnummer.core.record import Album
 from startnummer.core.sports.athletics import AthleticsDiscipline
 
 
@@ -319,6 +321,10 @@ def create_app(
     @app.post("/api/batches/{batch_id}/photo-dates", response_model=Batch)
     def read_photo_dates(batch_id: UUID, owner: Owner, service: Service):
         return service.read_photo_dates(owner, batch_id)
+
+    @app.put("/api/batches/{batch_id}/settings", response_model=Album)
+    def edit_album_settings(batch_id: UUID, body: AlbumSettings, owner: Owner, service: Service):
+        return service.edit_album_settings(owner, batch_id, body)
 
     @app.post("/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion", response_model=Photo)
     def refresh_caption_suggestion(batch_id: UUID, photo_id: UUID, body: Revision, owner: Owner, service: Service):

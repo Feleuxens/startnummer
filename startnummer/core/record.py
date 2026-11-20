@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from startnummer.core.enums import Sport, Status
-from startnummer.core.models import Subject
+from startnummer.core.models import CaptionNameOverride, Subject
 from startnummer.core.sports import Event
 
 _HASH_PREFIX = "sha256:"
@@ -22,6 +22,8 @@ class Album(BaseModel):
     sport: Sport
     meet_name: str | None = None  # competition name, independent of the batch's display name
     roster_source: str | None = None  # path/id the roster was parsed from
+    settings_revision: int = 0
+    caption_name_overrides: list[CaptionNameOverride] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

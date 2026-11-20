@@ -24,6 +24,7 @@ export default function PhotoEditor({
   onFindMatches,
   onAddPerson,
   onRemovePerson,
+  onOverrideCaptionName,
 }: {
   photo: Photo;
   roster: Schema['EntryList'];
@@ -40,6 +41,7 @@ export default function PhotoEditor({
   onFindMatches: (subject: number) => Promise<void>;
   onAddPerson: (person: PersonToAdd) => Promise<void>;
   onRemovePerson: (subject: number) => Promise<void>;
+  onOverrideCaptionName: (name: string) => void;
 }) {
   const [caption, setCaption] = useState(photo.caption ?? '');
   const [replace, setReplace] = useState(photo.replace_existing ?? false);
@@ -176,6 +178,7 @@ export default function PhotoEditor({
           )}
           {subjects.map((item, index) => {
             const draft = subjectEdits[index];
+            const sourceName = item.athlete?.value.name;
             const excluded = draft?.excluded_from_caption ?? item.excluded_from_caption;
             const chosen =
               draft?.roster_index != null
@@ -246,6 +249,9 @@ export default function PhotoEditor({
                     onFindMatches={() => void onFindMatches(index)}
                     canRemove={!busy && !dirty}
                     onRemove={() => void onRemovePerson(index)}
+                    onOverrideCaptionName={
+                      sourceName ? () => onOverrideCaptionName(sourceName) : undefined
+                    }
                   />
                 )}
               </div>

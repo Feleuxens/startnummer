@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, message, unwrap } from '../../api/client';
 import type { Schema } from '../../api/types';
-
-type Row = Schema['CaptionNameOverride'] & { key: string };
-const rowsFrom = (settings: Schema['CaptionNames']) =>
-  (settings.overrides ?? []).map((rule) => ({ ...rule, key: crypto.randomUUID() }));
+import CaptionNameRows, {
+  captionNameOverrides,
+  captionNameRow,
+  captionNameRows,
+  hasDuplicateCaptionNames,
+} from '../../components/CaptionNameRows';
+import type { CaptionNameRow } from '../../components/CaptionNameRows';
 
 export default function CaptionNames({
   onDirty,
@@ -14,7 +17,7 @@ export default function CaptionNames({
   disabled: boolean;
 }) {
   const [saved, setSaved] = useState<Schema['CaptionNames'] | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<CaptionNameRow[]>([]);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -36,7 +39,7 @@ export default function CaptionNames({
       const result = unwrap(await api.GET('/api/account/caption-names'));
       if (!alive.current || sequence !== generation.current) return;
       setSaved(result);
-      setRows(rowsFrom(result));
+      setRows(captionNameRows(result.overrides));
       mark(false);
     } catch (failure) {
       if (alive.current && sequence === generation.current) setError(message(failure));
@@ -76,10 +79,7 @@ export default function CaptionNames({
         <form
           onSubmit={async (event) => {
             event.preventDefault();
-            const keys = rows.map((row) =>
-              row.source_name.trim().replace(/\s+/g, ' ').toLowerCase(),
-            );
-            if (new Set(keys).size !== keys.length) {
+            if (hasDuplicateCaptionNames(rows)) {
               setError('Each full source name can have only one override.');
               return;
             }
@@ -91,16 +91,13 @@ export default function CaptionNames({
                 await api.PUT('/api/account/caption-names', {
                   body: {
                     revision: saved.revision,
-                    overrides: rows.map(({ source_name, caption_name }) => ({
-                      source_name,
-                      caption_name,
-                    })),
+                    overrides: captionNameOverrides(rows),
                   },
                 }),
               );
               if (!alive.current) return;
               setSaved(result);
-              setRows(rowsFrom(result));
+              setRows(captionNameRows(result.overrides));
               mark(false);
               setNotice('Caption name overrides saved. Existing captions were kept.');
             } catch (failure) {
@@ -112,69 +109,19 @@ export default function CaptionNames({
         >
           <fieldset disabled={busy || disabled}>
             {!rows.length && <p>No caption name overrides configured.</p>}
-            <ol className="caption-name-rules">
-              {rows.map((row, index) => (
-                <li key={row.key}>
-                  <label>
-                    Full source name
-                    <input
-                      aria-label={`Full source name ${index + 1}`}
-                      value={row.source_name}
-                      required
-                      maxLength={200}
-                      onChange={(event) => {
-                        setRows((previous) =>
-                          previous.map((current) =>
-                            current.key === row.key
-                              ? { ...current, source_name: event.target.value }
-                              : current,
-                          ),
-                        );
-                        mark(true);
-                      }}
-                    />
-                  </label>
-                  <label>
-                    Name in captions
-                    <input
-                      aria-label={`Name in captions ${index + 1}`}
-                      value={row.caption_name}
-                      required
-                      maxLength={200}
-                      onChange={(event) => {
-                        setRows((previous) =>
-                          previous.map((current) =>
-                            current.key === row.key
-                              ? { ...current, caption_name: event.target.value }
-                              : current,
-                          ),
-                        );
-                        mark(true);
-                      }}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    aria-label={`Remove name override ${index + 1}`}
-                    onClick={() => {
-                      setRows((previous) => previous.filter((current) => current.key !== row.key));
-                      mark(true);
-                    }}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ol>
+            <CaptionNameRows
+              rows={rows}
+              onChange={(next) => {
+                setRows(next);
+                mark(true);
+              }}
+            />
             <div className="actions">
               <button
                 type="button"
                 disabled={rows.length >= 1000}
                 onClick={() => {
-                  setRows((previous) => [
-                    ...previous,
-                    { key: crypto.randomUUID(), source_name: '', caption_name: '' },
-                  ]);
+                  setRows((previous) => [...previous, captionNameRow()]);
                   mark(true);
                 }}
               >

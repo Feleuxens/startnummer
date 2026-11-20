@@ -12,6 +12,69 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'Saved albums', exact: true })).toBeVisible();
 }
 
+test('edit album metadata and override a name from an analyzed photo', async ({ page }) => {
+  await login(page);
+  const accountNames = await (await page.request.get('/api/account/caption-names')).json();
+  await page.getByRole('button', { name: 'New batch', exact: true }).last().click();
+  await page.getByLabel('Album URL').fill('http://gallery.test/album/a');
+  await page.getByLabel('Roster HTML').setInputFiles({
+    name: 'roster.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from(html),
+  });
+  await page.getByLabel('Album name', { exact: true }).fill('Before edits');
+  await page.getByLabel('Meet name', { exact: true }).fill('Old meet');
+  await page.getByRole('button', { name: 'Import and preview', exact: true }).click();
+  await page.getByRole('button', { name: 'Analyze batch', exact: true }).click();
+  const face = page.getByRole('button', { name: 'Name detected face 1', exact: true });
+  await expect(face).toBeEnabled({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Approve this photo', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Unapprove this photo', exact: true }),
+  ).toBeVisible();
+
+  const batchId = new URL(page.url()).hash.split('/')[1];
+  const faceSession = (await (await page.request.get(`/api/batches/${batchId}/faces`)).json())
+    .session_id;
+  await face.click();
+  await page.getByRole('button', { name: 'Override name for this album…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Album settings', exact: true });
+  await expect(dialog.getByLabel('Full source name 1', { exact: true })).toHaveValue(
+    'Alex Example',
+  );
+  const replacement = dialog.getByLabel('Name in captions 1', { exact: true });
+  await expect(replacement).toBeFocused();
+  await replacement.fill('Alex Local');
+  await dialog.getByLabel('Album name', { exact: true }).fill('After edits');
+  await dialog.getByLabel('Meet name').fill('Corrected meet');
+  await dialog.screenshot({ path: test.info().outputPath('album-settings-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const save = dialog.getByRole('button', { name: 'Save album settings', exact: true });
+  await expect(save).toBeInViewport({ ratio: 1 });
+  await dialog.screenshot({ path: test.info().outputPath('album-settings-mobile.png') });
+  await save.click();
+  await expect(dialog).toBeHidden();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(page.getByRole('heading', { name: 'After edits', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Reviewed caption')).toHaveValue(/Alex Local.*Corrected meet/);
+  await expect(page.getByRole('button', { name: 'Approve this photo', exact: true })).toBeEnabled();
+  const saved = (await (await page.request.get(`/api/batches/${batchId}`)).json()).batch;
+  expect(
+    saved.photos.every((photo: components['schemas']['Photo']) =>
+      photo.caption?.includes('Alex Local'),
+    ),
+  ).toBe(true);
+  expect(saved.roster.athletes[0].name).toBe('Alex Example');
+  expect((await (await page.request.get(`/api/batches/${batchId}/faces`)).json()).session_id).toBe(
+    faceSession,
+  );
+  expect(await (await page.request.get('/api/account/caption-names')).json()).toEqual(accountNames);
+
+  await page.reload();
+  await page.getByRole('button', { name: 'Edit album…', exact: true }).click();
+  await expect(dialog.getByLabel('Name in captions 1', { exact: true })).toHaveValue('Alex Local');
+});
+
 test('repair failed uploads without losing other files or the roster draft', async ({ page }) => {
   await login(page);
   const seed = await page.request.post('/api/batches', {

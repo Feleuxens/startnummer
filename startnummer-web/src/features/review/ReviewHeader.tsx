@@ -14,6 +14,7 @@ export default function ReviewHeader({
   onRefresh,
   onFacesCleared,
   onPreview,
+  onEditAlbum,
 }: {
   view: BatchView;
   canPublish: boolean;
@@ -24,6 +25,7 @@ export default function ReviewHeader({
   onRefresh: () => Promise<BatchView>;
   onFacesCleared: () => void;
   onPreview: () => void;
+  onEditAlbum: () => void;
 }) {
   const batchId = view.batch.album.id;
   const photos = view.batch.photos;
@@ -40,6 +42,9 @@ export default function ReviewHeader({
           </p>
         </div>
         <div className="actions">
+          <button disabled={busy} onClick={onEditAlbum}>
+            Edit album…
+          </button>
           <button
             disabled={busy || running || changes.dirty.current}
             onClick={() =>

@@ -19,7 +19,7 @@ from startnummer.adapters.entrylist.ergebnisse_leichtathletik_de import (
 )
 from startnummer.adapters.face.sessions import propagation_problem
 from startnummer.adapters.photo_dates import capture_time, modified_time
-from startnummer.app.captions import caption_overrides
+from startnummer.app.captions import album_caption_overrides, caption_overrides
 from startnummer.app.contracts import (
     DisciplineChange,
     DisciplinePreview,
@@ -401,6 +401,36 @@ class Services:
 
         return self.store.enqueue(owner_id, batch_id, before_queue=discard_session)
 
+    def edit_album_settings(self, owner_id, batch_id, settings):
+        with self.store.transaction(owner_id) as session:
+            batch = self.store.load(session, owner_id, batch_id, lock=True)
+            album = batch.album
+            if settings.revision != album.settings_revision:
+                raise Conflict("Album settings changed; reload the saved settings before editing")
+            meet_changed = album.meet_name != settings.meet_name
+            names_changed = album.caption_name_overrides != settings.overrides
+            if not (meet_changed or names_changed or album.name != settings.name):
+                return album
+            if meet_changed or names_changed:
+                _, account_names = caption_overrides(self.store, owner_id, session=session)
+                old_names = album_caption_overrides(album, account_names)
+                album.meet_name = settings.meet_name
+                album.caption_name_overrides = settings.overrides
+                new_names = album_caption_overrides(album, account_names)
+                for photo in batch.photos:
+                    if photo.analysis is None:
+                        continue
+                    record = photo.analysis.record
+                    before = build_description(record, name_overrides=old_names)
+                    record.meet_name = album.meet_name
+                    suggestion = build_description(record, name_overrides=new_names)
+                    if before != suggestion and self._replace_caption_suggestion(photo, suggestion):
+                        photo.changed()
+            album.name = settings.name
+            album.settings_revision += 1
+            self.store.save(session, batch)
+            return album
+
     def cancel_analysis(self, owner_id, batch_id, *, require_face_cleanup=True):
         with self.store.transaction(owner_id) as session:
             self.store.load(session, owner_id, batch_id, lock=True)
@@ -464,7 +494,8 @@ class Services:
                     added_manually=True,
                 )
             )
-            self._regenerate_subject_caption(photo, caption_overrides(self.store, owner_id, session=session)[1])
+            _, names = caption_overrides(self.store, owner_id, session=session, album=batch.album)
+            self._regenerate_subject_caption(photo, names)
             photo.conflicts_resolved = False
             photo.changed()
             self.store.save(session, batch)
@@ -482,7 +513,8 @@ class Services:
             if not photo.analysis.record.subjects[subject_index].added_manually:
                 raise Conflict("Only people added manually can be removed with this action")
             photo.analysis.record.subjects.pop(subject_index)
-            self._regenerate_subject_caption(photo, caption_overrides(self.store, owner_id, session=session)[1])
+            _, names = caption_overrides(self.store, owner_id, session=session, album=batch.album)
+            self._regenerate_subject_caption(photo, names)
             photo.conflicts_resolved = False
             photo.changed()
             self.store.save(session, batch)
@@ -513,7 +545,7 @@ class Services:
             if corrections or "discipline" in fields or patch.use_generated_caption:
                 if record is None:
                     raise Conflict("Analyze the photo before correcting subjects or discipline")
-                _, names = caption_overrides(self.store, owner_id, session=session)
+                _, names = caption_overrides(self.store, owner_id, session=session, album=batch.album)
                 for correction in corrections:
                     self._edit_subject(batch, photo, correction)
                 if patch.use_generated_caption:
@@ -546,15 +578,21 @@ class Services:
                 raise Conflict("This photo changed; reload before refreshing its caption suggestion")
             if photo.analysis is None:
                 raise Conflict("Analyze the photo before generating a caption suggestion")
-            _, names = caption_overrides(self.store, owner_id, session=session)
+            _, names = caption_overrides(self.store, owner_id, session=session, album=batch.album)
             suggestion = build_description(photo.analysis.record, name_overrides=names)
-            if suggestion != photo.proposal or (not photo.caption_edited and suggestion != photo.caption):
-                photo.proposal = photo.analysis.record.description = suggestion
-                if not photo.caption_edited:
-                    photo.caption = suggestion
+            if self._replace_caption_suggestion(photo, suggestion):
                 photo.changed()
                 self.store.save(session, batch)
             return photo
+
+    @staticmethod
+    def _replace_caption_suggestion(photo, suggestion):
+        if suggestion == photo.proposal and (photo.caption_edited or suggestion == photo.caption):
+            return False
+        photo.proposal = photo.analysis.record.description = suggestion
+        if not photo.caption_edited:
+            photo.caption = suggestion
+        return True
 
     def _edit_subject(self, batch, photo, correction):
         record = photo.analysis.record
@@ -666,7 +704,10 @@ class Services:
                 after.changed()
             updated.append(after)
         return DisciplinePreview(
-            discipline=request.discipline, photos=changes, caption_names_revision=caption_names_revision
+            discipline=request.discipline,
+            photos=changes,
+            caption_names_revision=caption_names_revision,
+            album_settings_revision=batch.album.settings_revision,
         ), updated
 
     def preview_discipline(self, owner_id, batch_id, request):
@@ -674,7 +715,12 @@ class Services:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             revision, names = caption_overrides(
-                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+                self.store,
+                owner_id,
+                session=session,
+                expected_revision=request.caption_names_revision,
+                album=batch.album,
+                expected_album_revision=request.album_settings_revision,
             )
             preview, _ = self._discipline_changes(batch, request, revision, names)
             return preview
@@ -684,7 +730,12 @@ class Services:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             revision, names = caption_overrides(
-                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+                self.store,
+                owner_id,
+                session=session,
+                expected_revision=request.caption_names_revision,
+                album=batch.album,
+                expected_album_revision=request.album_settings_revision,
             )
             _, updated = self._discipline_changes(batch, request, revision, names)
             by_id = {photo.id: photo for photo in updated}
@@ -876,6 +927,7 @@ class Services:
             expires_at=data["expires_at"],
             warnings=[f"Source photo: {warning}" for warning in source_warnings],
             caption_names_revision=caption_names_revision,
+            album_settings_revision=batch.album.settings_revision,
         )
 
     def preview_propagation(self, owner_id, batch_id, request):
@@ -883,7 +935,12 @@ class Services:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             revision, names = caption_overrides(
-                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+                self.store,
+                owner_id,
+                session=session,
+                expected_revision=request.caption_names_revision,
+                album=batch.album,
+                expected_album_revision=request.album_settings_revision,
             )
             return self._propagation_preview(batch, request, revision, names)
 
@@ -892,7 +949,12 @@ class Services:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             revision, names = caption_overrides(
-                self.store, owner_id, session=session, expected_revision=request.caption_names_revision
+                self.store,
+                owner_id,
+                session=session,
+                expected_revision=request.caption_names_revision,
+                album=batch.album,
+                expected_album_revision=request.album_settings_revision,
             )
             preview = self._propagation_preview(batch, request, revision, names)
             candidates = {(c.target.photo_id, c.target.subject): c for c in preview.candidates}
@@ -927,7 +989,12 @@ class Services:
                 batch_id,
                 request.face_session_id,
                 [
-                    {"photo_id": str(photo.id), "revision": photo.revision, "before": before[photo.id]}
+                    {
+                        "photo_id": str(photo.id),
+                        "revision": photo.revision,
+                        "before": before[photo.id],
+                        "album_settings_revision": batch.album.settings_revision,
+                    }
                     for photo in changed.values()
                 ],
             )
@@ -939,12 +1006,17 @@ class Services:
             batch = self.store.load(session, owner_id, batch_id, lock=True)
             self.store.require_idle(session, owner_id, batch_id)
             changes = self.sessions.undo(owner_id, batch_id, request.face_session_id, request.undo_id)
+            _, names = caption_overrides(self.store, owner_id, session=session, album=batch.album)
             restored = {}
             for change in changes:
                 current = batch.photo(UUID(change["photo_id"]))
                 if current.revision != change["revision"]:
                     raise Conflict("A photo changed after propagation; correct it individually instead of undoing")
                 previous = Photo.model_validate(change["before"])
+                if previous.analysis and change.get("album_settings_revision", 0) != batch.album.settings_revision:
+                    record = previous.analysis.record
+                    record.meet_name = batch.album.meet_name
+                    self._replace_caption_suggestion(previous, build_description(record, name_overrides=names))
                 if previous.current_description != current.current_description:
                     previous.replace_existing = False
                 previous.current_description = current.current_description
@@ -978,6 +1050,7 @@ class Services:
                     retained.add(photo.id)
             photo.analysis = result
             if name_overrides is not None:
+                result.record.meet_name = batch.album.meet_name
                 result.record.description = build_description(result.record, name_overrides=name_overrides)
             photo.proposal = result.record.description
             if not photo.caption_edited:

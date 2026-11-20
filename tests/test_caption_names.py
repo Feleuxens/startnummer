@@ -11,7 +11,15 @@ from sqlalchemy import create_engine
 from startnummer.adapters.db.store import Store
 from startnummer.app.backup import backup, restore
 from startnummer.app.captions import caption_preferences
-from startnummer.app.contracts import CaptionNames, DisciplineAssignment, Edit, PropagationApply, Selection
+from startnummer.app.contracts import (
+    AlbumSettings,
+    CaptionNames,
+    DisciplineAssignment,
+    Edit,
+    PropagationApply,
+    Selection,
+)
+from startnummer.app.inference import InlineAnalyzer
 from startnummer.app.manage import migrate
 from startnummer.app.operations import effective_settings, runtime_settings
 from startnummer.app.worker import Worker
@@ -19,7 +27,7 @@ from startnummer.core.batch import Conflict, Missing
 from startnummer.core.description import build_description, caption_name_key
 from startnummer.core.enums import Source
 from startnummer.core.models import Confident, Subject
-from tests.test_accounts import HEADERS, invite, setup
+from tests.test_accounts import HEADERS, imported, invite, setup
 from tests.test_accounts import accounts as accounts
 from tests.test_face_propagation import prepare
 from tests.test_workflow import Detector, Faces, Ocr, analyzed, import_batch
@@ -114,6 +122,104 @@ def test_analysis_and_regeneration_use_only_the_owners_overrides(environment):
         batch.album.owner_id, batch.album.id, photo.id, Edit(revision=photo.revision, discipline="no_event")
     )
     assert photo.caption == "Alex van Example (12, Example Club) | Example Meet"
+
+
+def test_edit_album_regenerates_suggestions_with_local_rules_and_keeps_manual_text_and_faces(environment):
+    service, _ = environment
+    batch, other = named_batch(service), named_batch(service)
+    owner, batch_id = batch.album.owner_id, batch.album.id
+    first, second = batch.photos
+    second = service.edit(owner, batch_id, second.id, Edit(revision=second.revision, caption="My reviewed caption"))
+    service.approve_photo(owner, batch_id, first.id, first.revision)
+    service.approve_photo(owner, batch_id, second.id, second.revision)
+    service.sessions.put(owner, batch_id, {str(first.id): [{"subject": 0, "box": [1, 2, 3, 4]}]})
+    face_session = service.sessions.get(owner, batch_id)["session_id"]
+    save_rules(service)
+
+    changed = AlbumSettings(
+        revision=0,
+        name=" Renamed album ",
+        meet_name=" Corrected meet ",
+        overrides=[{"source_name": "Alex Example", "caption_name": "Alex Album"}],
+    )
+    album = service.edit_album_settings(owner, batch_id, changed)
+    saved = service.store.get(owner, batch_id)
+    assert album.settings_revision == 1 and saved.album.name == "Renamed album"
+    assert saved.album.meet_name == "Corrected meet"
+    assert saved.photos[0].caption == "Alex Album (12, Example Club) | Corrected meet"
+    assert saved.photos[1].caption == "My reviewed caption"
+    assert saved.photos[1].proposal == saved.photos[0].caption
+    assert [photo.approved for photo in saved.photos] == [False, False]
+    assert saved.roster == batch.roster
+    assert [photo.destination for photo in saved.photos] == [photo.destination for photo in batch.photos]
+    assert saved.photos[0].analysis.record.subjects[0].athlete.value.name == "Alex Example"
+    assert service.sessions.get(owner, batch_id)["session_id"] == face_session
+    assert service.store.get(owner, other.album.id) == other
+    with pytest.raises(Conflict, match="Album settings changed"):
+        service.edit_album_settings(owner, batch_id, changed)
+
+    removed = changed.model_copy(update={"revision": 1, "overrides": [], "meet_name": None})
+    service.edit_album_settings(owner, batch_id, removed)
+    assert service.store.get(owner, batch_id).photos[0].caption == "Alex van Example (12, Example Club)"
+
+
+def test_running_analysis_uses_album_edits_made_after_inference(environment):
+    service, _ = environment
+    batch = import_batch(service)
+    owner, batch_id = batch.album.owner_id, batch.album.id
+    inline = InlineAnalyzer(Detector(), Ocr(), Faces())
+    edited = AlbumSettings(revision=0, name="Edited during analysis", meet_name="New meet", overrides=[RULE])
+
+    def analyze(album, paths, **options):
+        result = inline(album, paths, **options)
+        assert result.records[0].meet_name == "Example Meet"
+        service.edit_album_settings(owner, batch_id, edited)
+        return result
+
+    service.analyze(owner, batch_id)
+    assert Worker(service.store, service.blobs, service.sessions, analyzer=analyze).run_once()
+    saved = service.store.get(owner, batch_id)
+    assert saved.album.name == "Edited during analysis"
+    assert saved.photos[0].analysis.record.meet_name == "New meet"
+    assert "Alex van Example" in saved.photos[0].caption and saved.photos[0].caption.endswith(" | New meet")
+    assert service.sessions.get(owner, batch_id)["available"]
+
+
+def test_album_revision_protects_previews_even_when_existing_captions_are_unaffected(environment):
+    service, _ = environment
+    batch = named_batch(service)
+    owner, batch_id = batch.album.owner_id, batch.album.id
+    request = DisciplineAssignment(
+        discipline="long_jump", photos=[Selection(photo_id=p.id, revision=p.revision) for p in batch.photos]
+    )
+    preview = service.preview_discipline(owner, batch_id, request)
+    service.edit_album_settings(
+        owner,
+        batch_id,
+        AlbumSettings(
+            revision=0, name="New title", overrides=[{"source_name": "Other Runner", "caption_name": "Other"}]
+        ),
+    )
+    assert service.store.get(owner, batch_id).photos == batch.photos
+    confirmed = request.model_copy(update={"album_settings_revision": preview.album_settings_revision})
+    with pytest.raises(Conflict, match="Album settings changed"):
+        service.assign_discipline(owner, batch_id, confirmed)
+
+
+def test_album_settings_endpoint_is_owner_scoped(accounts):
+    app, _, _, _ = accounts
+    with setup(app) as admin:
+        member, _ = invite(admin, app)
+        with member:
+            batch = imported(member)
+            path = f"/api/batches/{batch['album']['id']}/settings"
+            settings = {"revision": 0, "name": "Renamed", "overrides": [RULE, RULE]}
+            assert member.put(path, json=settings).status_code == 422
+            settings["overrides"] = [RULE]
+            assert admin.put(path, json=settings).status_code == 404
+            saved = member.put(path, json=settings)
+            assert saved.status_code == 200 and saved.json()["caption_name_overrides"] == [RULE]
+            assert member.get("/api/account/caption-names").json()["overrides"] == []
 
 
 @pytest.mark.parametrize("manual", [False, True])

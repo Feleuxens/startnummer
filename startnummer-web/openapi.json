@@ -982,6 +982,56 @@
         }
       }
     },
+    "/api/batches/{batch_id}/settings": {
+      "put": {
+        "summary": "Edit Album Settings",
+        "operationId": "edit_album_settings_api_batches__batch_id__settings_put",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlbumSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Album"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/batches/{batch_id}/photos/{photo_id}/caption-suggestion": {
       "post": {
         "summary": "Refresh Caption Suggestion",
@@ -2357,6 +2407,18 @@
             ],
             "title": "Roster Source"
           },
+          "settings_revision": {
+            "type": "integer",
+            "title": "Settings Revision",
+            "default": 0
+          },
+          "caption_name_overrides": {
+            "items": {
+              "$ref": "#/components/schemas/CaptionNameOverride"
+            },
+            "type": "array",
+            "title": "Caption Name Overrides"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2371,9 +2433,50 @@
           "sport",
           "meet_name",
           "roster_source",
+          "settings_revision",
+          "caption_name_overrides",
           "created_at"
         ],
         "title": "Album"
+      },
+      "AlbumSettings": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/CaptionNameOverride"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Overrides"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "meet_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meet Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "name"
+        ],
+        "title": "AlbumSettings"
       },
       "AnalysisDocument": {
         "properties": {
@@ -3347,6 +3450,18 @@
               }
             ],
             "title": "Caption Names Revision"
+          },
+          "album_settings_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Settings Revision"
           }
         },
         "additionalProperties": false,
@@ -3479,6 +3594,17 @@
               }
             ],
             "title": "Caption Names Revision"
+          },
+          "album_settings_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Settings Revision"
           },
           "discipline": {
             "$ref": "#/components/schemas/AthleticsDiscipline"
@@ -4511,6 +4637,18 @@
             ],
             "title": "Caption Names Revision"
           },
+          "album_settings_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Settings Revision"
+          },
           "targets": {
             "items": {
               "$ref": "#/components/schemas/FaceTarget"
@@ -4669,6 +4807,18 @@
             ],
             "title": "Caption Names Revision"
           },
+          "album_settings_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Settings Revision"
+          },
           "athlete_name": {
             "type": "string",
             "title": "Athlete Name"
@@ -4698,6 +4848,7 @@
           "source",
           "face_session_id",
           "caption_names_revision",
+          "album_settings_revision",
           "athlete_name",
           "candidates",
           "expires_at",
@@ -4726,6 +4877,18 @@
               }
             ],
             "title": "Caption Names Revision"
+          },
+          "album_settings_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Settings Revision"
           }
         },
         "additionalProperties": false,

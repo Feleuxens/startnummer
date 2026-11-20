@@ -19,7 +19,7 @@ from startnummer.adapters.blob.filesystem import FilesystemBlobStore
 from startnummer.adapters.db.store import Store
 from startnummer.adapters.face.sessions import FaceSessions
 from startnummer.adapters.runtime import Backend, BackendUnavailable
-from startnummer.app.captions import caption_overrides
+from startnummer.app.captions import album_caption_overrides, caption_overrides
 from startnummer.app.inference import InlineAnalyzer, ProcessAnalyzer
 from startnummer.app.services import Services, run
 from startnummer.app.settings import DEFAULT_MAX_CONCURRENT_JOBS
@@ -190,7 +190,7 @@ class Worker:
         _, options = self.store.installation_settings(job.owner_id)
 
         def merge(current):
-            retained = Services.merge_analysis(current, results, names)
+            retained = Services.merge_analysis(current, results, album_caption_overrides(current.album, names))
             for photo_id in retained:
                 # A retained manual layout may not align with fresh detections.
                 geometry.pop(str(photo_id), None)

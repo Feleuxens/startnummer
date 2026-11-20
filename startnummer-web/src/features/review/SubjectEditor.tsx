@@ -13,6 +13,7 @@ export default function SubjectEditor({
   onFindMatches,
   canRemove,
   onRemove,
+  onOverrideCaptionName,
 }: {
   subject: Schema['Subject'];
   roster: Schema['EntryList'];
@@ -22,6 +23,7 @@ export default function SubjectEditor({
   onFindMatches: () => void;
   canRemove: boolean;
   onRemove: () => void;
+  onOverrideCaptionName?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const hasRoster = !!roster.athletes?.length;
@@ -124,6 +126,11 @@ export default function SubjectEditor({
       {!subject.added_manually && (
         <button type="button" disabled={!canFindMatches} onClick={onFindMatches}>
           Find matching faces…
+        </button>
+      )}
+      {onOverrideCaptionName && (
+        <button type="button" onClick={onOverrideCaptionName}>
+          Override name for this album…
         </button>
       )}
       {subject.added_manually && (

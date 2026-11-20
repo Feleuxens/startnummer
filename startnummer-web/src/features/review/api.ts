@@ -4,6 +4,14 @@ import type { Edit, Photo, Schema, Selection } from '../../api/types';
 export const getBatch = async (batchId: string) =>
   unwrap(await api.GET('/api/batches/{batch_id}', { params: { path: { batch_id: batchId } } }));
 
+export const saveAlbumSettings = async (batchId: string, body: Schema['AlbumSettings']) =>
+  unwrap(
+    await api.PUT('/api/batches/{batch_id}/settings', {
+      params: { path: { batch_id: batchId } },
+      body,
+    }),
+  );
+
 export const getFaces = async (batchId: string) =>
   unwrap(
     await api.GET('/api/batches/{batch_id}/faces', { params: { path: { batch_id: batchId } } }),
@@ -143,6 +151,7 @@ export const propagateNames = async (
         acknowledge_unsupported_bibs: acknowledgeWarnings,
         acknowledge_tentative_names: acknowledgeWarnings,
         caption_names_revision: preview.caption_names_revision,
+        album_settings_revision: preview.album_settings_revision,
       },
     }),
   );

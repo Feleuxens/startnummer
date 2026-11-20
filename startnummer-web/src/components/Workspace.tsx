@@ -293,6 +293,7 @@ export default function Workspace() {
           setError={setError}
           setNotice={setNotice}
           onStatus={setReviewStatus}
+          onAlbumSaved={listAlbums}
           onDelete={async () => {
             setReview(null);
             setReviewStatus({ name: '', running: false });

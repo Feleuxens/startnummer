@@ -62,6 +62,13 @@ The roster parser leaves the meet name blank, so supply it yourself if needed.
 Uploading a photo does not link it to a gallery image. Import from a Chevereto
 album when you want to update that album's existing descriptions.
 
+### Edit album settings
+
+Open a saved album and choose **Edit album…** to change the **Album name** or
+**Meet name**. The meet name is optional and appears in generated captions.
+Editing it refreshes the affected caption suggestions, including when analysis
+is already running. Review changed suggestions before approving them again.
+
 ## 2. Analyze the batch
 
 Choose **Analyze batch**. Progress appears above the photos, and failed photos
@@ -125,6 +132,17 @@ choose **Remove added person** to undo the addition.
 
 ### Override a name in captions
 
+For one album, choose **Edit album…** and add a rule under **Caption name
+overrides**. When you spot a name during review, open that person's row and
+choose **Override name for this album…** to fill in its source name. Enter the
+replacement under **Name in captions**, then choose **Save album settings**.
+
+Album rules take priority over account rules for the same source name. Saving
+refreshes affected suggestions across the album without rerunning analysis.
+For a manually edited caption, choose **Use generated caption** to adopt the
+new suggestion. Approve changed suggestions again before applying them.
+
+For a name you want to use across albums, use an account rule.
 Open **Account → Caption name overrides**, choose **Add name override**, and enter
 the **Full source name** shown in the roster or subject evidence. Enter the
 replacement under **Name in captions**, then choose **Save name overrides**.
