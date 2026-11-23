@@ -48,6 +48,7 @@ DISCIPLINE_ABBREVIATIONS: dict[str, AthleticsDiscipline] = {
     "WEI": AthleticsDiscipline.LONG_JUMP,
     "WEZ": AthleticsDiscipline.LONG_JUMP,
     "DRE": AthleticsDiscipline.TRIPLE_JUMP,
+    "MFS": AthleticsDiscipline.MULTI_JUMP,
     "HOC": AthleticsDiscipline.HIGH_JUMP,
     "STA": AthleticsDiscipline.POLE_VAULT,
     "KUG": AthleticsDiscipline.SHOT_PUT,

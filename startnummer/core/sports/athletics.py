@@ -75,6 +75,7 @@ class AthleticsDiscipline(BaseDiscipline):
     HIGH_JUMP = ("high_jump", "High jump", "Hochsprung", AthleticsKind.JUMP)
     POLE_VAULT = ("pole_vault", "Pole vault", "Stabhochsprung", AthleticsKind.JUMP)
     TRIPLE_JUMP = ("triple_jump", "Triple jump", "Dreisprung", AthleticsKind.JUMP)
+    MULTI_JUMP = ("multi_jump", "Multi-Jump", "Mehrfachsprung", AthleticsKind.JUMP)
     # THROW
     SHOT_PUT = ("shot_put", "Shot put", "Kugelstoßen", AthleticsKind.THROW)
     JAVELIN = ("javelin", "Javelin", "Speerwurf", AthleticsKind.THROW)
