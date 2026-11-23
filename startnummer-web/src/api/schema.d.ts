@@ -991,7 +991,7 @@ export interface components {
          * AthleticsDiscipline
          * @enum {string}
          */
-        AthleticsDiscipline: "50m" | "60m" | "75m" | "80m" | "100m" | "150m" | "200m" | "300m" | "400m" | "600m" | "800m" | "1000m" | "1500m" | "2000m" | "3000m" | "5000m" | "10000m" | "60mH" | "80mH" | "100mH" | "110mH" | "300mH" | "400mH" | "4x50m" | "4x75m" | "4x100m" | "4x200m" | "4x400m" | "3x800m" | "3x1000m" | "steeplechase" | "walking" | "long_jump" | "high_jump" | "pole_vault" | "triple_jump" | "shot_put" | "javelin" | "discus" | "hammer" | "ball" | "other" | "no_event";
+        AthleticsDiscipline: "50m" | "60m" | "75m" | "80m" | "100m" | "150m" | "200m" | "300m" | "400m" | "600m" | "800m" | "1000m" | "1500m" | "2000m" | "3000m" | "5000m" | "10000m" | "60mH" | "80mH" | "100mH" | "110mH" | "300mH" | "400mH" | "4x50m" | "4x75m" | "4x100m" | "4x200m" | "4x400m" | "3x800m" | "3x1000m" | "steeplechase" | "walking" | "long_jump" | "high_jump" | "pole_vault" | "triple_jump" | "multi_jump" | "shot_put" | "javelin" | "discus" | "hammer" | "ball" | "other" | "no_event";
         /** AthleticsEvent */
         AthleticsEvent: {
             /**

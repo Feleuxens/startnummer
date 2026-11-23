@@ -2733,6 +2733,7 @@
           "high_jump",
           "pole_vault",
           "triple_jump",
+          "multi_jump",
           "shot_put",
           "javelin",
           "discus",
